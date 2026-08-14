@@ -10,15 +10,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const forcePayouts = new URL(req.url).searchParams.get('force') === '1';
+  const force = new URL(req.url).searchParams.get('force') === '1';
 
   try {
-    const result = await runChannelCron(req, { force: forcePayouts });
-    return NextResponse.json({ via: 'heartbeat', ...result });
+    const result = await runChannelCron(req, { force });
+    return NextResponse.json({ via: 'cron', ...result });
   } catch (e) {
-    console.error('cron heartbeat', e);
+    console.error('cron tick', e);
     return NextResponse.json(
-      { via: 'heartbeat', ok: false, error: e instanceof Error ? e.message : 'heartbeat_failed' },
+      { via: 'cron', ok: false, error: e instanceof Error ? e.message : 'tick_failed' },
       { status: 500 }
     );
   }

@@ -1,49 +1,36 @@
 import { NextResponse } from 'next/server';
-import { announceTodaysPayouts } from '@/utils/payout-announce';
-import { loadPayoutTransactions } from '@/utils/payout-feed';
+import { cronAuthorized, runChannelCron } from '@/utils/run-channel-cron';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-function authorized(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  const { searchParams } = new URL(req.url);
-  const auth = req.headers.get('authorization') || '';
-  const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  const q = searchParams.get('secret') || '';
-  if (secret && (bearer === secret || q === secret)) return true;
-  if (req.headers.get('x-vercel-cron') === '1') return true;
-  return false;
-}
+export const maxDuration = 60;
 
 /**
- * Cron / manual trigger for payout channel posts.
- * Auth: Authorization: Bearer CRON_SECRET  OR  ?secret=CRON_SECRET
- * Optional: ?force=1 to skip pace (post one/batch now)
+ * Vercel Cron: Jarvis webhook + payout channel + Q&A.
+ * Auth: Bearer CRON_SECRET | ?secret= | x-vercel-cron
  */
 export async function GET(req: Request) {
-  if (!authorized(req)) {
+  if (!cronAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const force = new URL(req.url).searchParams.get('force') === '1';
 
   try {
-    const transactions = await loadPayoutTransactions();
-    const result = await announceTodaysPayouts(transactions, Date.now(), { force });
-
+    const result = await runChannelCron(req, { force });
     return NextResponse.json({
       via: 'cron',
-      ok: result.ok,
-      announced: result.announced,
-      posted: result.posted,
-      pending: result.pending,
-      nextInMs: result.nextInMs,
-      count: transactions.length,
-      txids: result.txids,
-      error: result.error,
+      ok: result.payouts.ok,
+      announced: (result.payouts.posted || 0) > 0,
+      posted: result.payouts.posted,
+      pending: result.payouts.pending,
+      count: result.payouts.count,
+      txids: result.payouts.txids,
+      error: result.payouts.error,
       channel: process.env.PAYOUT_CHANNEL_ID?.replace(/^["']|["']$/g, '') || null,
       hasBotToken: Boolean(process.env.BOT_TOKEN),
+      webhook: result.webhook,
+      qa: result.qa,
     });
   } catch (e) {
     console.error('cron payout-announce', e);

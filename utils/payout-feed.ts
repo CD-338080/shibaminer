@@ -16,6 +16,16 @@ export type PayoutRow = AnnounceablePayout & {
 
 const SHIB_CONTRACT_DEFAULT = '0x495eea66B0f8b636D441dC6a98d8F5C3D455C4c0';
 
+const EXPLORER_BASES = Array.from(
+  new Set(
+    [
+      SHIBARIUM_EXPLORER,
+      'https://www.shibariumscan.io',
+      'https://shibariumscan.io',
+    ].map((u) => u.replace(/\/$/, ''))
+  )
+);
+
 function shibContract(): string {
   return (
     process.env.SHIB_TOKEN_CONTRACT ||
@@ -37,6 +47,28 @@ function formatShibAmount(value: string | number, decimals = 18): string {
     return fracStr ? `${whole.toLocaleString('en-US')}.${fracStr}` : whole.toLocaleString('en-US');
   } catch {
     return String(value);
+  }
+}
+
+async function fetchJson(url: string): Promise<unknown | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 9000);
+  try {
+    const res = await fetch(url, {
+      cache: 'no-store',
+      signal: ctrl.signal,
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'ShibaMinerPro/1.0 (+https://shibaminer-sigma.vercel.app)',
+      },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    console.warn('payout fetch failed', url, e instanceof Error ? e.message : e);
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -73,13 +105,12 @@ function parseV2Transfer(item: Record<string, unknown>): PayoutRow | null {
   if (!to) return null;
 
   const decimals = Number(token?.decimals || 18) || 18;
-  const total = item.total as { value?: string } | string | undefined;
+  const total = item.total as { value?: string; decimals?: string } | string | undefined;
   const value =
     typeof total === 'string'
       ? total
       : String((total && typeof total === 'object' && total.value) || item.value || '0');
 
-  // Skip dust / empty
   try {
     if (BigInt(String(value).split('.')[0] || '0') <= BigInt(0)) return null;
   } catch {
@@ -87,7 +118,8 @@ function parseV2Transfer(item: Record<string, unknown>): PayoutRow | null {
   }
 
   const tsRaw = String(item.timestamp || '');
-  const ts = tsRaw ? Date.parse(tsRaw) : Number(item.timeStamp) * 1000 || Date.now();
+  const parsedTs = tsRaw ? Date.parse(tsRaw) : NaN;
+  const ts = Number.isFinite(parsedTs) ? parsedTs : Number(item.timeStamp) * 1000 || Date.now();
 
   return {
     txid,
@@ -101,29 +133,13 @@ function parseV2Transfer(item: Record<string, unknown>): PayoutRow | null {
   };
 }
 
-/**
- * Live network-wide SHIB transfers (many distinct txs every minute).
- * Best source for a busy payout channel.
- */
-async function fetchLiveShibNetworkTransfers(): Promise<PayoutRow[]> {
-  const contract =
-    process.env.SHIB_TOKEN_CONTRACT ||
-    process.env.NEXT_PUBLIC_SHIB_TOKEN_CONTRACT ||
-    SHIB_CONTRACT_DEFAULT;
-  const url = `${SHIBARIUM_EXPLORER}/api/v2/tokens/${contract}/transfers`;
-  const res = await fetch(url, {
-    cache: 'no-store',
-    headers: { Accept: 'application/json' },
-  });
-  if (!res.ok) return [];
-
-  const data = (await res.json()) as { items?: Array<Record<string, unknown>> };
-  if (!Array.isArray(data.items)) return [];
-
+function rowsFromItems(items: unknown): PayoutRow[] {
+  if (!Array.isArray(items)) return [];
   const seen = new Set<string>();
   const rows: PayoutRow[] = [];
-  for (const item of data.items) {
-    const row = parseV2Transfer(item);
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const row = parseV2Transfer(item as Record<string, unknown>);
     if (!row || seen.has(row.txid)) continue;
     seen.add(row.txid);
     rows.push(row);
@@ -132,35 +148,43 @@ async function fetchLiveShibNetworkTransfers(): Promise<PayoutRow[]> {
   return rows.sort((a, b) => b.timestamp - a.timestamp);
 }
 
-/** Outbound SHIB from a specific hot wallet. */
-async function fetchWalletOutbound(treasury: string): Promise<PayoutRow[]> {
-  const url = `${SHIBARIUM_EXPLORER}/api/v2/addresses/${treasury}/token-transfers?type=ERC-20&filter=from`;
-  const res = await fetch(url, {
-    cache: 'no-store',
-    headers: { Accept: 'application/json' },
-  });
-  if (!res.ok) return [];
+async function fetchLiveShibNetworkTransfers(): Promise<PayoutRow[]> {
+  const contract =
+    process.env.SHIB_TOKEN_CONTRACT ||
+    process.env.NEXT_PUBLIC_SHIB_TOKEN_CONTRACT ||
+    SHIB_CONTRACT_DEFAULT;
 
-  const data = (await res.json()) as { items?: Array<Record<string, unknown>> };
-  if (!Array.isArray(data.items)) return [];
-
-  const seen = new Set<string>();
-  const rows: PayoutRow[] = [];
-  for (const item of data.items) {
-    const row = parseV2Transfer(item);
-    if (!row || seen.has(row.txid)) continue;
-    seen.add(row.txid);
-    rows.push(row);
-    if (rows.length >= 30) break;
+  for (const base of EXPLORER_BASES) {
+    const data = await fetchJson(`${base}/api/v2/tokens/${contract}/transfers`);
+    const items =
+      data && typeof data === 'object' && Array.isArray((data as { items?: unknown }).items)
+        ? (data as { items: unknown[] }).items
+        : null;
+    const rows = rowsFromItems(items);
+    if (rows.length) return rows;
   }
-  return rows.sort((a, b) => b.timestamp - a.timestamp);
+  return [];
+}
+
+async function fetchWalletOutbound(treasury: string): Promise<PayoutRow[]> {
+  for (const base of EXPLORER_BASES) {
+    const data = await fetchJson(
+      `${base}/api/v2/addresses/${treasury}/token-transfers?type=ERC-20&filter=from`
+    );
+    const items =
+      data && typeof data === 'object' && Array.isArray((data as { items?: unknown }).items)
+        ? (data as { items: unknown[] }).items
+        : null;
+    const rows = rowsFromItems(items).slice(0, 30);
+    if (rows.length) return rows;
+  }
+  return [];
 }
 
 export async function loadPayoutTransactions(): Promise<PayoutRow[]> {
   let transactions: PayoutRow[] = [];
   const feedUrl = process.env.SHIB_PAYOUT_FEED_URL || process.env.DOGE_PAYOUT_FEED_URL;
 
-  // Always pull live SHIB transfers first (does not depend on treasury env)
   try {
     transactions = await fetchLiveShibNetworkTransfers();
   } catch (e) {
@@ -169,18 +193,19 @@ export async function loadPayoutTransactions(): Promise<PayoutRow[]> {
 
   if (feedUrl) {
     try {
-      const res = await fetch(feedUrl, { cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : data.transactions;
-        if (Array.isArray(list)) {
-          const extra = list
-            .map((raw) => normalizeFeedRow(raw as Record<string, unknown>))
-            .filter((row): row is PayoutRow => Boolean(row));
-          const byId = new Map<string, PayoutRow>();
-          for (const tx of [...extra, ...transactions]) byId.set(tx.txid, tx);
-          transactions = Array.from(byId.values());
-        }
+      const data = await fetchJson(feedUrl);
+      const list = Array.isArray(data)
+        ? data
+        : data && typeof data === 'object'
+          ? (data as { transactions?: unknown }).transactions
+          : null;
+      if (Array.isArray(list)) {
+        const extra = list
+          .map((raw) => normalizeFeedRow(raw as Record<string, unknown>))
+          .filter((row): row is PayoutRow => Boolean(row));
+        const byId = new Map<string, PayoutRow>();
+        for (const tx of [...extra, ...transactions]) byId.set(tx.txid, tx);
+        transactions = Array.from(byId.values());
       }
     } catch (e) {
       console.error('payout feed url failed', e);
