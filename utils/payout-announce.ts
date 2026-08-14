@@ -12,18 +12,26 @@ export type AnnounceablePayout = {
 };
 
 const PACE_META_KEY = 'payout_announce_pace';
-const PACE_MINUTES = [10, 8, 4, 1];
 const COL_ANNOUNCED = 'payout_announced';
 const COL_META = 'app_meta';
 
 type PaceMeta = {
   lastAnnounceAt: number;
-  paceIndex: number;
 };
 
 declare global {
   // eslint-disable-next-line no-var
   var __shibPayoutMongo: MongoClient | undefined;
+}
+
+function databaseNameFromUri(uri: string): string | undefined {
+  try {
+    const path = uri.split('?')[0]?.split('/').pop();
+    if (path && path.length > 0 && !path.includes('@')) return path;
+  } catch {
+    /* ignore */
+  }
+  return undefined;
 }
 
 async function getDb(): Promise<Db | null> {
@@ -34,7 +42,8 @@ async function getDb(): Promise<Db | null> {
       global.__shibPayoutMongo = new MongoClient(uri);
       await global.__shibPayoutMongo.connect();
     }
-    return global.__shibPayoutMongo.db();
+    const name = databaseNameFromUri(uri) || 'telegram_clicker';
+    return global.__shibPayoutMongo.db(name);
   } catch (e) {
     console.error('payout mongo connect failed', e);
     return null;
@@ -42,7 +51,7 @@ async function getDb(): Promise<Db | null> {
 }
 
 function recentWindowStart(now = Date.now()): number {
-  const hours = Number(process.env.PAYOUT_LOOKBACK_HOURS) || 24;
+  const hours = Number(process.env.PAYOUT_LOOKBACK_HOURS) || 48;
   return now - hours * 60 * 60 * 1000;
 }
 
@@ -52,34 +61,30 @@ function shortAddr(addr: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
-function paceEnabled(): boolean {
-  const v = (process.env.PAYOUT_PACE_ENABLED || 'true').toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
+/** Seconds between channel posts (default 60). */
+function announceIntervalMs(): number {
+  const sec = Number(process.env.PAYOUT_ANNOUNCE_SEC);
+  if (Number.isFinite(sec) && sec > 0) return sec * 1000;
+  const min = Number(process.env.PAYOUT_ANNOUNCE_MIN);
+  if (Number.isFinite(min) && min > 0) return min * 60 * 1000;
+  return 60 * 1000;
 }
 
-function intervalForIndex(paceIndex: number): number {
-  if (!paceEnabled()) return 0;
-  const start = Number(process.env.PAYOUT_ANNOUNCE_MIN);
-  const cycle =
-    Number.isFinite(start) && start > 0
-      ? [start, ...PACE_MINUTES.filter((m) => m < start)]
-      : PACE_MINUTES;
-  const unique = Array.from(new Set(cycle));
-  const mins = unique[paceIndex % unique.length] ?? 10;
-  return mins * 60 * 1000;
+/** How many payouts to post per tick when due (default 3). */
+function batchSize(): number {
+  const n = Number(process.env.PAYOUT_BATCH_SIZE);
+  if (Number.isFinite(n) && n > 0) return Math.min(10, Math.floor(n));
+  return 3;
 }
 
 async function loadPace(db: Db | null): Promise<PaceMeta> {
-  if (!db) return { lastAnnounceAt: 0, paceIndex: 0 };
+  if (!db) return { lastAnnounceAt: 0 };
   try {
     const row = await db.collection(COL_META).findOne({ key: PACE_META_KEY });
     const v = (row?.value || {}) as Partial<PaceMeta>;
-    return {
-      lastAnnounceAt: Number(v.lastAnnounceAt) || 0,
-      paceIndex: Number(v.paceIndex) || 0,
-    };
+    return { lastAnnounceAt: Number(v.lastAnnounceAt) || 0 };
   } catch {
-    return { lastAnnounceAt: 0, paceIndex: 0 };
+    return { lastAnnounceAt: 0 };
   }
 }
 
@@ -126,7 +131,7 @@ async function filterUnannounced(
 ): Promise<AnnounceablePayout[]> {
   const dayStart = recentWindowStart(now);
   const recent = txs
-    .filter((tx) => tx.txid && tx.timestamp >= dayStart)
+    .filter((tx) => tx.txid && Number(tx.timestamp) >= dayStart)
     .sort((a, b) => b.timestamp - a.timestamp);
 
   if (!recent.length) return [];
@@ -149,7 +154,7 @@ async function filterUnannounced(
 
 /**
  * Post recent payouts (same feed as Cash / Airdrop) to PAYOUT_CHANNEL_ID.
- * Automatic — triggered by the mini app when the feed loads. No Jarvis.
+ * Automatic — mini app + cron. No Jarvis.
  */
 export async function announceTodaysPayouts(
   txs: AnnounceablePayout[],
@@ -180,12 +185,9 @@ export async function announceTodaysPayouts(
   const db = await getDb();
   const pace = await loadPace(db);
   const pending = await filterUnannounced(db, txs, now);
-  const interval = intervalForIndex(pace.paceIndex);
+  const interval = announceIntervalMs();
   const due =
-    !!opts?.force ||
-    !paceEnabled() ||
-    pace.lastAnnounceAt === 0 ||
-    now - pace.lastAnnounceAt >= interval;
+    !!opts?.force || pace.lastAnnounceAt === 0 || now - pace.lastAnnounceAt >= interval;
 
   if (!pending.length) {
     return {
@@ -207,7 +209,8 @@ export async function announceTodaysPayouts(
     };
   }
 
-  const batch = paceEnabled() ? pending.slice(0, 1) : pending.slice(0, 5);
+  // Catch up: several txs per tick so the channel does not stall after 1 post
+  const batch = pending.slice(0, batchSize());
   const postedTxids: string[] = [];
 
   for (const tx of batch) {
@@ -219,6 +222,9 @@ export async function announceTodaysPayouts(
     });
     if (!sent.ok) {
       console.error('payout announce send failed', sent.error, { channel, txid: tx.txid });
+      if (postedTxids.length > 0) {
+        await savePace(db, { lastAnnounceAt: now });
+      }
       return {
         ok: false,
         announced: postedTxids.length > 0,
@@ -248,13 +254,13 @@ export async function announceTodaysPayouts(
       }
     }
     postedTxids.push(tx.txid);
+    // Soft Telegram rate limit between messages in the same tick
+    if (batch.length > 1) {
+      await new Promise((r) => setTimeout(r, 350));
+    }
   }
 
-  const nextPace: PaceMeta = {
-    lastAnnounceAt: now,
-    paceIndex: paceEnabled() ? (pace.paceIndex + 1) % PACE_MINUTES.length : pace.paceIndex,
-  };
-  await savePace(db, nextPace);
+  await savePace(db, { lastAnnounceAt: now });
 
   console.log('payout announce posted', {
     posted: postedTxids.length,
@@ -267,7 +273,7 @@ export async function announceTodaysPayouts(
     announced: true,
     posted: postedTxids.length,
     pending: Math.max(0, pending.length - postedTxids.length),
-    nextInMs: intervalForIndex(nextPace.paceIndex),
+    nextInMs: interval,
     txids: postedTxids,
   };
 }

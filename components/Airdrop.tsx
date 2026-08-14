@@ -296,7 +296,7 @@ export default function Airdrop({ setCurrentView }: AirdropProps = {}) {
 
   useEffect(() => {
     fetchTransactions();
-    const visualId = setInterval(fetchTransactions, 90000);
+      const visualId = setInterval(fetchTransactions, 60000);
     return () => {
       clearInterval(visualId);
     };
@@ -307,11 +307,7 @@ export default function Airdrop({ setCurrentView }: AirdropProps = {}) {
       if (!hasLoadedUsersRef.current) {
         setIsLoadingUsers(true);
       }
-      const url =
-        typeof window !== 'undefined'
-          ? `${window.location.origin}/api/users?t=${Date.now()}`
-          : `/api/users?t=${Date.now()}`;
-      const res = await fetch(url, {
+      const res = await fetch(`/api/users?t=${Date.now()}`, {
         cache: 'no-store',
         headers: { Pragma: 'no-cache', 'Cache-Control': 'no-cache' },
       });
@@ -322,7 +318,30 @@ export default function Airdrop({ setCurrentView }: AirdropProps = {}) {
       const data = await res.json();
       const list = Array.isArray(data.users) ? data.users : [];
       setTotalUsers(typeof data.total === 'number' ? data.total : list.length);
-      setAppUsers(list);
+      setAppUsers(
+        list.map(
+          (
+            u: {
+              id?: string;
+              rank?: number;
+              name?: string;
+              telegramId?: string | null;
+              isPremium?: boolean;
+              points?: number;
+              pointsBalance?: number;
+            },
+            i: number
+          ) => ({
+            id: String(u.id || `u-${i}`),
+            rank: typeof u.rank === 'number' ? u.rank : i + 1,
+            name: String(u.name || 'Miner'),
+            telegramId: u.telegramId ? String(u.telegramId) : null,
+            isPremium: Boolean(u.isPremium),
+            points: Number(u.points) || 0,
+            pointsBalance: Number(u.pointsBalance) || 0,
+          })
+        )
+      );
       hasLoadedUsersRef.current = true;
     } catch (e) {
       console.error('Error fetching users:', e);
@@ -646,7 +665,19 @@ export default function Airdrop({ setCurrentView }: AirdropProps = {}) {
                   ))}
                 </div>
               ) : appUsers.length === 0 ? (
-                <p className="text-[#9a8f86] text-xs text-center py-4 font-medium">No miners yet</p>
+                <div className="text-center py-4 space-y-2">
+                  <p className="text-[#9a8f86] text-xs font-medium">No miners yet</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHapticFeedback(window);
+                      void fetchUsers();
+                    }}
+                    className="air-btn-ghost text-xs px-3 py-1.5"
+                  >
+                    Retry
+                  </button>
+                </div>
               ) : (
                 <ul className="space-y-1.5 max-h-[28rem] overflow-y-auto no-scrollbar">
                   {appUsers.map((u) => {

@@ -3,9 +3,7 @@
 import { useEffect } from 'react';
 
 /**
- * App-driven channel posts (no Jarvis).
- * Hits the payout feed so the server can auto-post to PAYOUT_CHANNEL_ID,
- * and paces Q&A separately.
+ * Keeps payout (+ QA) channel posts flowing while the mini app is open.
  */
 export function ChannelAnnounceTicker() {
   useEffect(() => {
@@ -20,8 +18,8 @@ export function ChannelAnnounceTicker() {
       }).catch(() => undefined);
     };
 
-    const delay = window.setTimeout(tick, 5000);
-    const id = window.setInterval(tick, 60 * 1000);
+    const delay = window.setTimeout(tick, 2500);
+    const id = window.setInterval(tick, 45 * 1000);
     return () => {
       window.clearTimeout(delay);
       window.clearInterval(id);

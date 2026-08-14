@@ -2,7 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/payout-announce",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/qa-announce",
+      "schedule": "0 16 * * *"
     }
   ]
 }

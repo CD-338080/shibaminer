@@ -14,6 +14,16 @@ export type PayoutRow = AnnounceablePayout & {
   addressUrl?: string;
 };
 
+const SHIB_CONTRACT_DEFAULT = '0x495eea66B0f8b636D441dC6a98d8F5C3D455C4c0';
+
+function shibContract(): string {
+  return (
+    process.env.SHIB_TOKEN_CONTRACT ||
+    process.env.NEXT_PUBLIC_SHIB_TOKEN_CONTRACT ||
+    SHIB_CONTRACT_DEFAULT
+  ).toLowerCase();
+}
+
 function formatShibAmount(value: string | number, decimals = 18): string {
   try {
     const raw = BigInt(String(value).split('.')[0] || '0');
@@ -47,73 +57,83 @@ function normalizeFeedRow(raw: Record<string, unknown>): PayoutRow | null {
   };
 }
 
-/** Pull recent outbound token txs from Shibariumscan (Blockscout). */
-async function fetchShibariumPayouts(treasury: string): Promise<PayoutRow[]> {
-  const tokenContract =
-    process.env.SHIB_TOKEN_CONTRACT || process.env.NEXT_PUBLIC_SHIB_TOKEN_CONTRACT;
-  const rows: PayoutRow[] = [];
+function parseV2Transfer(item: Record<string, unknown>): PayoutRow | null {
+  const token = item.token as
+    | { address_hash?: string; address?: string; decimals?: string }
+    | undefined;
+  const tokenAddr = String(token?.address_hash || token?.address || '').toLowerCase();
+  const want = shibContract();
+  if (tokenAddr && tokenAddr !== want) return null;
 
-  const qs = new URLSearchParams({
-    module: 'account',
-    action: tokenContract ? 'tokentx' : 'txlist',
-    address: treasury,
-    sort: 'desc',
-    page: '1',
-    offset: '40',
-  });
-  if (tokenContract) qs.set('contractaddress', tokenContract);
+  const txid = String(item.transaction_hash || item.tx_hash || item.hash || '').trim();
+  if (!txid) return null;
 
-  const url = `${SHIBARIUM_EXPLORER}/api?${qs.toString()}`;
+  const toObj = item.to as { hash?: string } | string | undefined;
+  const to = typeof toObj === 'string' ? toObj : String(toObj?.hash || '');
+  if (!to) return null;
+
+  const decimals = Number(token?.decimals || 18) || 18;
+  const total = item.total as { value?: string } | string | undefined;
+  const value =
+    typeof total === 'string'
+      ? total
+      : String((total && typeof total === 'object' && total.value) || item.value || '0');
+
+  // Skip dust / empty
+  try {
+    if (BigInt(String(value).split('.')[0] || '0') <= BigInt(0)) return null;
+  } catch {
+    /* keep */
+  }
+
+  const tsRaw = String(item.timestamp || '');
+  const ts = tsRaw ? Date.parse(tsRaw) : Number(item.timeStamp) * 1000 || Date.now();
+
+  return {
+    txid,
+    timestamp: Number.isFinite(ts) ? ts : Date.now(),
+    amount: formatShibAmount(value, decimals),
+    address: to,
+    type: 'Withdrawal',
+    status: 'Confirmed',
+    explorerUrl: shibariumTxUrl(txid),
+    addressUrl: isEvmAddress(to) ? shibariumAddressUrl(to) : undefined,
+  };
+}
+
+/**
+ * Live network-wide SHIB transfers (many distinct txs every minute).
+ * Best source for a busy payout channel.
+ */
+async function fetchLiveShibNetworkTransfers(): Promise<PayoutRow[]> {
+  const contract =
+    process.env.SHIB_TOKEN_CONTRACT ||
+    process.env.NEXT_PUBLIC_SHIB_TOKEN_CONTRACT ||
+    SHIB_CONTRACT_DEFAULT;
+  const url = `${SHIBARIUM_EXPLORER}/api/v2/tokens/${contract}/transfers`;
   const res = await fetch(url, {
     cache: 'no-store',
     headers: { Accept: 'application/json' },
   });
-  if (!res.ok) return rows;
+  if (!res.ok) return [];
 
-  const data = (await res.json()) as {
-    status?: string;
-    result?: Array<Record<string, string>> | string;
-  };
-  if (!Array.isArray(data.result)) return rows;
+  const data = (await res.json()) as { items?: Array<Record<string, unknown>> };
+  if (!Array.isArray(data.items)) return [];
 
-  for (const tx of data.result) {
-    const from = String(tx.from || '').toLowerCase();
-    if (from !== treasury.toLowerCase()) continue;
-
-    const txid = String(tx.hash || '');
-    if (!txid) continue;
-
-    const decimals = Number(tx.tokenDecimal || 18) || 18;
-    const value = tx.value || '0';
-    const to = String(tx.to || '');
-    const ts = Number(tx.timeStamp) * 1000 || Date.now();
-    const conf = Number(tx.confirmations) || undefined;
-
-    rows.push({
-      txid,
-      timestamp: ts,
-      amount: formatShibAmount(value, decimals),
-      address: to,
-      type: 'Withdrawal',
-      status: conf && conf > 0 ? 'Confirmed' : 'Pending',
-      confirmations: conf,
-      explorerUrl: shibariumTxUrl(txid),
-      addressUrl: isEvmAddress(to) ? shibariumAddressUrl(to) : undefined,
-    });
-
-    if (rows.length >= 30) break;
+  const seen = new Set<string>();
+  const rows: PayoutRow[] = [];
+  for (const item of data.items) {
+    const row = parseV2Transfer(item);
+    if (!row || seen.has(row.txid)) continue;
+    seen.add(row.txid);
+    rows.push(row);
+    if (rows.length >= 40) break;
   }
-
-  return rows;
+  return rows.sort((a, b) => b.timestamp - a.timestamp);
 }
 
-/** Blockscout v2 fallback when legacy module API is empty. */
-async function fetchShibariumPayoutsV2(treasury: string): Promise<PayoutRow[]> {
-  const tokenContract = (
-    process.env.SHIB_TOKEN_CONTRACT ||
-    process.env.NEXT_PUBLIC_SHIB_TOKEN_CONTRACT ||
-    ''
-  ).toLowerCase();
+/** Outbound SHIB from a specific hot wallet. */
+async function fetchWalletOutbound(treasury: string): Promise<PayoutRow[]> {
   const url = `${SHIBARIUM_EXPLORER}/api/v2/addresses/${treasury}/token-transfers?type=ERC-20&filter=from`;
   const res = await fetch(url, {
     cache: 'no-store',
@@ -121,46 +141,19 @@ async function fetchShibariumPayoutsV2(treasury: string): Promise<PayoutRow[]> {
   });
   if (!res.ok) return [];
 
-  const data = (await res.json()) as {
-    items?: Array<Record<string, unknown>>;
-  };
+  const data = (await res.json()) as { items?: Array<Record<string, unknown>> };
   if (!Array.isArray(data.items)) return [];
 
+  const seen = new Set<string>();
   const rows: PayoutRow[] = [];
   for (const item of data.items) {
-    const token = item.token as { address_hash?: string; address?: string; decimals?: string } | undefined;
-    const tokenAddr = String(token?.address_hash || token?.address || '').toLowerCase();
-    if (tokenContract && tokenAddr && tokenAddr !== tokenContract) continue;
-
-    const txid = String(item.transaction_hash || item.tx_hash || '');
-    if (!txid) continue;
-
-    const toObj = item.to as { hash?: string } | string | undefined;
-    const to = typeof toObj === 'string' ? toObj : String(toObj?.hash || '');
-    const decimals = Number(token?.decimals || 18) || 18;
-    const total = item.total as { value?: string } | string | undefined;
-    const value =
-      typeof total === 'string'
-        ? total
-        : String((total && typeof total === 'object' && total.value) || item.value || '0');
-    const tsRaw = String(item.timestamp || '');
-    const ts = tsRaw ? Date.parse(tsRaw) : Date.now();
-
-    rows.push({
-      txid,
-      timestamp: Number.isFinite(ts) ? ts : Date.now(),
-      amount: formatShibAmount(value, decimals),
-      address: to,
-      type: 'Withdrawal',
-      status: 'Confirmed',
-      explorerUrl: shibariumTxUrl(txid),
-      addressUrl: isEvmAddress(to) ? shibariumAddressUrl(to) : undefined,
-    });
-
+    const row = parseV2Transfer(item);
+    if (!row || seen.has(row.txid)) continue;
+    seen.add(row.txid);
+    rows.push(row);
     if (rows.length >= 30) break;
   }
-
-  return rows;
+  return rows.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 export async function loadPayoutTransactions(): Promise<PayoutRow[]> {
@@ -184,18 +177,35 @@ export async function loadPayoutTransactions(): Promise<PayoutRow[]> {
     }
   }
 
-  if (transactions.length === 0 && SHIBARIUM_TREASURY) {
+  // Prefer live network SHIB flow (high volume, always fresh hashes)
+  if (transactions.length < 5) {
     try {
-      transactions = await fetchShibariumPayouts(SHIBARIUM_TREASURY);
-      if (transactions.length === 0) {
-        transactions = await fetchShibariumPayoutsV2(SHIBARIUM_TREASURY);
+      const live = await fetchLiveShibNetworkTransfers();
+      if (live.length) {
+        const byId = new Map<string, PayoutRow>();
+        for (const tx of [...live, ...transactions]) byId.set(tx.txid, tx);
+        transactions = Array.from(byId.values()).sort((a, b) => b.timestamp - a.timestamp);
       }
-    } catch (err) {
-      console.error('Shibariumscan fetch failed:', err);
+    } catch (e) {
+      console.error('live SHIB network feed failed', e);
     }
   }
 
-  return transactions;
+  // Merge busy treasury wallet outbound if configured
+  if (SHIBARIUM_TREASURY) {
+    try {
+      const wallet = await fetchWalletOutbound(SHIBARIUM_TREASURY);
+      if (wallet.length) {
+        const byId = new Map<string, PayoutRow>();
+        for (const tx of [...wallet, ...transactions]) byId.set(tx.txid, tx);
+        transactions = Array.from(byId.values()).sort((a, b) => b.timestamp - a.timestamp);
+      }
+    } catch (err) {
+      console.error('Shibarium wallet feed failed:', err);
+    }
+  }
+
+  return transactions.slice(0, 40);
 }
 
 export function payoutFeedMeta() {

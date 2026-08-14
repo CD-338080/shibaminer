@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { announceRandomQa } from '@/utils/qa-posts';
 
-/** Cron: Bearer CRON_SECRET or ?secret= */
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+/** Cron: Bearer CRON_SECRET or ?secret= — respects 24h gate unless ?force=1 */
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   const { searchParams } = new URL(req.url);
@@ -13,7 +16,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const force = searchParams.get('force') !== '0';
+  const force = searchParams.get('force') === '1';
   const result = await announceRandomQa({ force });
   return NextResponse.json({ via: 'cron', ...result });
 }

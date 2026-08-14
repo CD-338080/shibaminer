@@ -1,5 +1,4 @@
-import fs from 'fs';
-import path from 'path';
+import { MongoClient, type Db } from 'mongodb';
 import { sendTelegramMessage, normalizeTelegramChatId } from '@/utils/telegram-bot';
 
 export type QaItem = {
@@ -92,51 +91,76 @@ type QaState = {
   lastAt: number;
 };
 
-function storePath(): string {
-  const base = process.env.VERCEL ? '/tmp' : path.join(process.cwd(), '.data');
-  return path.join(base, 'qa-announce.json');
+const COL_META = 'app_meta';
+const QA_META_KEY = 'qa_announce_pace';
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __shibQaMongo: MongoClient | undefined;
 }
 
-function loadState(): QaState {
-  const g = globalThis as typeof globalThis & { __shibQaAnnounce?: QaState };
-  if (g.__shibQaAnnounce) return g.__shibQaAnnounce;
-  let state: QaState = { lastIds: [], lastAt: 0 };
+function databaseNameFromUri(uri: string): string | undefined {
   try {
-    const p = storePath();
-    if (fs.existsSync(p)) {
-      const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as Partial<QaState>;
-      state = {
-        lastIds: Array.isArray(raw.lastIds) ? raw.lastIds.slice(-20) : [],
-        lastAt: Number(raw.lastAt) || 0,
-      };
-    }
+    const part = uri.split('?')[0]?.split('/').pop();
+    if (part && part.length > 0 && !part.includes('@')) return part;
   } catch {
     /* ignore */
   }
-  g.__shibQaAnnounce = state;
-  return state;
+  return undefined;
 }
 
-function saveState(state: QaState) {
-  const g = globalThis as typeof globalThis & { __shibQaAnnounce?: QaState };
-  g.__shibQaAnnounce = state;
+async function getDb(): Promise<Db | null> {
+  const uri = process.env.DATABASE_URL;
+  if (!uri) return null;
   try {
-    const p = storePath();
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, JSON.stringify(state), 'utf8');
+    if (!global.__shibQaMongo) {
+      global.__shibQaMongo = new MongoClient(uri);
+      await global.__shibQaMongo.connect();
+    }
+    const name = databaseNameFromUri(uri) || 'telegram_clicker';
+    return global.__shibQaMongo.db(name);
+  } catch (e) {
+    console.error('qa mongo connect failed', e);
+    return null;
+  }
+}
+
+async function loadState(db: Db | null): Promise<QaState> {
+  if (!db) return { lastIds: [], lastAt: 0 };
+  try {
+    const row = await db.collection(COL_META).findOne({ key: QA_META_KEY });
+    const v = (row?.value || {}) as Partial<QaState>;
+    return {
+      lastIds: Array.isArray(v.lastIds) ? v.lastIds.map(String).slice(-20) : [],
+      lastAt: Number(v.lastAt) || 0,
+    };
+  } catch {
+    return { lastIds: [], lastAt: 0 };
+  }
+}
+
+async function saveState(db: Db | null, state: QaState): Promise<void> {
+  if (!db) return;
+  try {
+    await db.collection(COL_META).updateOne(
+      { key: QA_META_KEY },
+      { $set: { key: QA_META_KEY, value: state } },
+      { upsert: true }
+    );
   } catch (e) {
     console.warn('qa-announce save failed', e);
   }
 }
 
-function intervalMs(): number {
-  // Prefer hours (default 24). QA_ANNOUNCE_MIN overrides if set explicitly.
+/** Q&A cadence: default every 24 hours (QA_ANNOUNCE_HOURS). */
+export function qaIntervalMs(): number {
   if (process.env.QA_ANNOUNCE_MIN) {
     const mins = Number(process.env.QA_ANNOUNCE_MIN);
     if (Number.isFinite(mins) && mins > 0) return mins * 60 * 1000;
   }
-  const hours = Number(process.env.QA_ANNOUNCE_HOURS) || 24;
-  return Math.max(1, hours) * 60 * 60 * 1000;
+  const hours = Number(process.env.QA_ANNOUNCE_HOURS);
+  const h = Number.isFinite(hours) && hours > 0 ? hours : 24;
+  return h * 60 * 60 * 1000;
 }
 
 function pickRandomQa(avoid: string[]): QaItem {
@@ -167,8 +191,9 @@ export function formatQaMessage(item: QaItem): string {
 }
 
 /**
- * Post a random app Q&A to QA_CHANNEL_ID (rate-limited).
- * force=true skips the interval gate (for cron/manual tests).
+ * Post a random app Q&A to QA_CHANNEL_ID.
+ * Rate-limited to once every QA_ANNOUNCE_HOURS (default 24).
+ * force=true skips the interval (manual only).
  */
 export async function announceRandomQa(
   opts?: { force?: boolean; now?: number }
@@ -178,10 +203,12 @@ export async function announceRandomQa(
   nextInMs: number;
   qaId?: string;
   error?: string;
+  intervalHours?: number;
 }> {
   const channel = normalizeTelegramChatId(process.env.QA_CHANNEL_ID);
   const token = process.env.BOT_TOKEN?.trim().replace(/^["']|["']$/g, '');
   const now = opts?.now ?? Date.now();
+  const wait = qaIntervalMs();
 
   if (!token) {
     return { ok: false, posted: false, nextInMs: 0, error: 'BOT_TOKEN missing' };
@@ -190,15 +217,16 @@ export async function announceRandomQa(
     return { ok: false, posted: false, nextInMs: 0, error: 'QA_CHANNEL_ID missing' };
   }
 
-  const state = loadState();
-  const wait = intervalMs();
-  const due = !!opts?.force || now - state.lastAt >= wait;
+  const db = await getDb();
+  const state = await loadState(db);
+  const due = !!opts?.force || state.lastAt === 0 || now - state.lastAt >= wait;
 
   if (!due) {
     return {
       ok: true,
       posted: false,
       nextInMs: Math.max(0, wait - (now - state.lastAt)),
+      intervalHours: wait / (60 * 60 * 1000),
     };
   }
 
@@ -211,12 +239,27 @@ export async function announceRandomQa(
   });
 
   if (!sent.ok) {
-    return { ok: false, posted: false, nextInMs: wait, error: sent.error, qaId: item.id };
+    return {
+      ok: false,
+      posted: false,
+      nextInMs: wait,
+      error: sent.error,
+      qaId: item.id,
+      intervalHours: wait / (60 * 60 * 1000),
+    };
   }
 
-  state.lastAt = now;
-  state.lastIds = [...state.lastIds.filter((id) => id !== item.id), item.id].slice(-8);
-  saveState(state);
+  const next: QaState = {
+    lastAt: now,
+    lastIds: [...state.lastIds.filter((id) => id !== item.id), item.id].slice(-8),
+  };
+  await saveState(db, next);
 
-  return { ok: true, posted: true, nextInMs: wait, qaId: item.id };
+  return {
+    ok: true,
+    posted: true,
+    nextInMs: wait,
+    qaId: item.id,
+    intervalHours: wait / (60 * 60 * 1000),
+  };
 }
