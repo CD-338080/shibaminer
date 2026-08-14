@@ -12,7 +12,6 @@ import {
   isJarvisAdmin,
   jarvisKeyboard,
   lookupUser,
-  PROMOTION_URL,
 } from '@/utils/bot-jarvis';
 import { announceTodaysPayouts } from '@/utils/payout-announce';
 import { loadPayoutTransactions } from '@/utils/payout-feed';
@@ -55,62 +54,39 @@ function qaChannelLink(): string | null {
   return null;
 }
 
-function isSpanish(lang?: string): boolean {
-  return (lang || '').toLowerCase().startsWith('es');
-}
-
-function mainKeyboard(lang?: string): InlineKeyboard {
-  const es = isSpanish(lang);
+function mainKeyboard(): InlineKeyboard {
   const web = webAppUrl();
   const row1: InlineKeyboard[number] = web
-    ? [
-        { text: es ? '🚀 Abrir Shiba Miner' : '🚀 Open Shiba Miner', web_app: { url: web } },
-      ]
-    : [{ text: es ? '🚀 Abrir Shiba Miner' : '🚀 Open Shiba Miner', url: miniAppUrl() }];
+    ? [{ text: '🚀 Open Shiba Miner', web_app: { url: web } }]
+    : [{ text: '🚀 Open Shiba Miner', url: miniAppUrl() }];
 
   const row2: InlineKeyboard[number] = [
-    { text: es ? '⛏ Cómo minar' : '⛏ How mining works', callback_data: 'help_mine' },
-    { text: es ? '💰 Retiros' : '💰 Withdrawals', callback_data: 'help_withdraw' },
+    { text: '⛏ How mining works', callback_data: 'help_mine' },
+    { text: '💰 Withdrawals', callback_data: 'help_withdraw' },
   ];
 
   const row3: InlineKeyboard[number] = [
-    { text: es ? '📦 Planes' : '📦 Plans', callback_data: 'help_plans' },
-    { text: es ? '👥 Invitar' : '👥 Referrals', callback_data: 'help_refs' },
+    { text: '📦 Plans', callback_data: 'help_plans' },
+    { text: '👥 Referrals', callback_data: 'help_refs' },
   ];
 
   const row4: InlineKeyboard[number] = [
-    { text: es ? '❓ FAQ' : '❓ FAQ', callback_data: 'help_faq' },
-    { text: es ? '🆘 Soporte' : '🆘 Support', callback_data: 'help_support' },
+    { text: '❓ FAQ', callback_data: 'help_faq' },
+    { text: '🆘 Support', callback_data: 'help_support' },
   ];
 
   const links: InlineKeyboard[number] = [];
   const pay = payoutChannelLink();
   const qa = qaChannelLink();
-  if (pay) links.push({ text: es ? '📡 Pagos en vivo' : '📡 Live payouts', url: pay });
-  if (qa) links.push({ text: es ? '💬 Q&A' : '💬 Q&A channel', url: qa });
-  links.push({ text: es ? '🌐 Abrir en Telegram' : '🌐 Open in Telegram', url: miniAppUrl() });
+  if (pay) links.push({ text: '📡 Live payouts', url: pay });
+  if (qa) links.push({ text: '💬 Q&A channel', url: qa });
+  links.push({ text: '🌐 Open in Telegram', url: miniAppUrl() });
 
   return [row1, row2, row3, row4, links];
 }
 
-function welcomeText(name: string, lang?: string): string {
-  const es = isSpanish(lang);
+function welcomeText(name: string): string {
   const handle = botUsername();
-  if (es) {
-    return [
-      `<b>Hola${name ? `, ${name}` : ''} 👋</b>`,
-      ``,
-      `Soy <b>@${handle}</b>, el asistente oficial de <b>Shiba Miner Pro</b>.`,
-      ``,
-      `Aquí puedes:`,
-      `• Minar <b>SHIB</b> cada 5 minutos`,
-      `• Activar planes de hashrate`,
-      `• Completar quests y referir amigos`,
-      `• Retirar a una wallet EVM (0x…)`,
-      ``,
-      `Usa los botones de abajo para empezar. Estoy disponible 24/7.`,
-    ].join('\n');
-  }
   return [
     `<b>Hello${name ? `, ${name}` : ''} 👋</b>`,
     ``,
@@ -126,20 +102,7 @@ function welcomeText(name: string, lang?: string): string {
   ].join('\n');
 }
 
-function helpMine(lang?: string): string {
-  const es = isSpanish(lang);
-  if (es) {
-    return [
-      `<b>⛏ Minería automática</b>`,
-      ``,
-      `1. Abre la app → pestaña <b>Miner</b>`,
-      `2. Pulsa <b>START DIG</b>`,
-      `3. Ganas <b>+1 SHIB cada 5 minutos</b>`,
-      `4. Sigue minando aunque cierres Telegram — al volver se acredita lo pendiente`,
-      ``,
-      `También puedes reclamar el <b>Daily Bone</b> una vez al día.`,
-    ].join('\n');
-  }
+function helpMine(): string {
   return [
     `<b>⛏ Auto mining</b>`,
     ``,
@@ -152,19 +115,7 @@ function helpMine(lang?: string): string {
   ].join('\n');
 }
 
-function helpWithdraw(lang?: string): string {
-  const es = isSpanish(lang);
-  if (es) {
-    return [
-      `<b>💰 Retiros</b>`,
-      ``,
-      `• Mínimo: <b>1,424 SHIB</b> en el vault (Cash)`,
-      `• Wallet: dirección EVM <code>0x…</code>`,
-      `• Los pagos on-chain se publican para verificación en Shibarium`,
-      ``,
-      `Nunca compartas tu seed phrase. El bot nunca te pedirá claves privadas.`,
-    ].join('\n');
-  }
+function helpWithdraw(): string {
   return [
     `<b>💰 Withdrawals</b>`,
     ``,
@@ -176,21 +127,7 @@ function helpWithdraw(lang?: string): string {
   ].join('\n');
 }
 
-function helpPlans(lang?: string): string {
-  const es = isSpanish(lang);
-  if (es) {
-    return [
-      `<b>📦 Planes de mining</b>`,
-      ``,
-      `En <b>Plans</b> eliges un tier (~+40% ROI).`,
-      `Puedes pagar con:`,
-      `• SHIB (Ethereum)`,
-      `• SHIB (BNB Chain)`,
-      `• ETH o BNB a la misma dirección`,
-      ``,
-      `Elige la red correcta en tu wallet antes de enviar.`,
-    ].join('\n');
-  }
+function helpPlans(): string {
   return [
     `<b>📦 Mining plans</b>`,
     ``,
@@ -204,16 +141,7 @@ function helpPlans(lang?: string): string {
   ].join('\n');
 }
 
-function helpRefs(lang?: string): string {
-  const es = isSpanish(lang);
-  if (es) {
-    return [
-      `<b>👥 Referidos</b>`,
-      ``,
-      `Abre <b>Pack</b>, copia o comparte tu link de invitación.`,
-      `Cuando un amigo entra con tu link, ganas SHIB de bonus (más si es Premium).`,
-    ].join('\n');
-  }
+function helpRefs(): string {
   return [
     `<b>👥 Referrals</b>`,
     ``,
@@ -222,19 +150,7 @@ function helpRefs(lang?: string): string {
   ].join('\n');
 }
 
-function helpFaq(lang?: string): string {
-  const es = isSpanish(lang);
-  if (es) {
-    return [
-      `<b>❓ FAQ rápido</b>`,
-      ``,
-      `<b>¿Se detiene el minado al cerrar?</b> No — el servidor sigue contando.`,
-      `<b>¿Cómo verifico un pago?</b> Cash → Live payouts → tap para abrir Shibariumscan.`,
-      `<b>¿Qué es Earn?</b> Quests para ganar SHIB extra.`,
-      ``,
-      `Más tips en el canal de Q&A cuando esté vinculado.`,
-    ].join('\n');
-  }
+function helpFaq(): string {
   return [
     `<b>❓ Quick FAQ</b>`,
     ``,
@@ -246,27 +162,11 @@ function helpFaq(lang?: string): string {
   ].join('\n');
 }
 
-function helpSupport(lang?: string): string {
-  const es = isSpanish(lang);
+function helpSupport(): string {
   const support = process.env.SUPPORT_TELEGRAM || process.env.SUPPORT_USERNAME;
   const line = support
-    ? es
-      ? `Contacto: @${String(support).replace(/^@/, '')}`
-      : `Contact: @${String(support).replace(/^@/, '')}`
-    : es
-      ? `Usa los botones de ayuda o abre la app y revisa Cash / Earn.`
-      : `Use the help buttons or open the app and check Cash / Earn.`;
-  if (es) {
-    return [
-      `<b>🆘 Soporte</b>`,
-      ``,
-      `Respuesta profesional y segura:`,
-      `• No pedimos seeds ni claves privadas`,
-      `• Verifica siempre los anuncios de @${botUsername()}`,
-      ``,
-      line,
-    ].join('\n');
-  }
+    ? `Contact: @${String(support).replace(/^@/, '')}`
+    : `Use the help buttons or open the app and check Cash / Earn.`;
   return [
     `<b>🆘 Support</b>`,
     ``,
@@ -278,16 +178,7 @@ function helpSupport(lang?: string): string {
   ].join('\n');
 }
 
-function defaultReply(lang?: string): string {
-  const es = isSpanish(lang);
-  if (es) {
-    return [
-      `Gracias por escribir. Soy el asistente oficial de <b>Shiba Miner Pro</b>.`,
-      ``,
-      `Puedo ayudarte con minería, planes, retiros y referidos.`,
-      `Elige una opción abajo o abre la app para empezar.`,
-    ].join('\n');
-  }
+function defaultReply(): string {
   return [
     `Thanks for reaching out. I'm the official <b>Shiba Miner Pro</b> assistant.`,
     ``,
@@ -296,24 +187,24 @@ function defaultReply(lang?: string): string {
   ].join('\n');
 }
 
-function textForCallback(data: string, lang?: string): string {
+function textForCallback(data: string): string {
   switch (data) {
     case 'help_mine':
-      return helpMine(lang);
+      return helpMine();
     case 'help_withdraw':
-      return helpWithdraw(lang);
+      return helpWithdraw();
     case 'help_plans':
-      return helpPlans(lang);
+      return helpPlans();
     case 'help_refs':
-      return helpRefs(lang);
+      return helpRefs();
     case 'help_faq':
-      return helpFaq(lang);
+      return helpFaq();
     case 'help_support':
-      return helpSupport(lang);
+      return helpSupport();
     case 'menu':
-      return welcomeText('', lang);
+      return welcomeText('');
     default:
-      return defaultReply(lang);
+      return defaultReply();
   }
 }
 
@@ -336,14 +227,13 @@ export type TgUpdate = {
 export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
   if (update.callback_query) {
     const cb = update.callback_query;
-    const lang = cb.from?.language_code;
     const chatId = cb.message?.chat.id ?? cb.from?.id;
     const data = cb.data || 'menu';
     const fromId = cb.from?.id;
 
     await answerCallbackQuery({
       callbackQueryId: cb.id,
-      text: isSpanish(lang) ? 'Listo' : 'Done',
+      text: 'Done',
     });
 
     if (!chatId) return;
@@ -385,15 +275,14 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
           text: [
             `<b>📣 /send — mass DM</b>`,
             ``,
-            `Send to every numeric Telegram user in the DB:`,
+            `Users receive <b>only your text</b> (no announcement header).`,
             `<code>/send Your message here</code>`,
             ``,
-            `Preview audience + message (no send):`,
+            `Preview (no send):`,
             `<code>/send_preview Hello miners</code>`,
             ``,
-            `Each DM includes buttons:`,
-            `• <b>Open Shiba Miner</b>`,
-            `• <b>Promotion</b> → <a href="${PROMOTION_URL}">AdEasly LTC</a>`,
+            `User DMs get: <b>Open Shiba Miner</b> only.`,
+            `Admin-only: <b>Promotion</b> button on this Jarvis menu.`,
             ``,
             `HTML is supported (keep it simple).`,
           ].join('\n'),
@@ -416,10 +305,10 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
 
     await sendTelegramMessage({
       chatId,
-      text: textForCallback(data, lang),
+      text: textForCallback(data),
       parseMode: 'HTML',
       disablePreview: true,
-      replyMarkup: { inline_keyboard: mainKeyboard(lang) },
+      replyMarkup: { inline_keyboard: mainKeyboard() },
     });
     return;
   }
@@ -428,7 +317,6 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
   if (!msg?.chat?.id) return;
   if (msg.chat.type && msg.chat.type !== 'private') return;
 
-  const lang = msg.from?.language_code;
   const name = msg.from?.first_name || '';
   const text = (msg.text || '').trim();
   const lower = text.toLowerCase();
@@ -523,7 +411,8 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
             `<code>/send Your message here</code>`,
             `<code>/send_preview Draft message</code>`,
             ``,
-            `Buttons auto-added: Open Shiba Miner · Promotion`,
+            `Users see only your text + Open Shiba Miner.`,
+            `Promotion stays on the admin Jarvis menu.`,
           ].join('\n'),
           parseMode: 'HTML',
           replyMarkup: { inline_keyboard: jarvisKeyboard() },
@@ -543,10 +432,10 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
             `Targets: <b>${preview.total}</b>`,
             `Skipped invalid IDs: ${preview.skipped}`,
             ``,
-            `<b>Message:</b>`,
+            `<b>Message users will see:</b>`,
             envelope,
             ``,
-            `<b>Buttons:</b> Open Shiba Miner · Promotion`,
+            `<b>User button:</b> Open Shiba Miner`,
           ].join('\n'),
           parseMode: 'HTML',
           disablePreview: true,
@@ -571,8 +460,6 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
           `Sent: <b>${result.sent}</b>`,
           `Failed: ${result.failed}`,
           `Skipped: ${result.skipped}`,
-          ``,
-          `Promotion: <a href="${PROMOTION_URL}">AdEasly LTC</a>`,
         ].join('\n'),
         parseMode: 'HTML',
         disablePreview: true,
@@ -607,21 +494,21 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
     return;
   }
 
-  let reply = defaultReply(lang);
+  let reply = defaultReply();
   if (!text || lower.startsWith('/start') || lower === 'hi' || lower === 'hola' || lower === 'menu') {
-    reply = welcomeText(name, lang);
+    reply = welcomeText(name);
   } else if (lower.includes('mine') || lower.includes('mina') || lower.includes('dig')) {
-    reply = helpMine(lang);
+    reply = helpMine();
   } else if (lower.includes('withdraw') || lower.includes('retiro') || lower.includes('cash')) {
-    reply = helpWithdraw(lang);
+    reply = helpWithdraw();
   } else if (lower.includes('plan') || lower.includes('pay') || lower.includes('pago')) {
-    reply = helpPlans(lang);
+    reply = helpPlans();
   } else if (lower.includes('refer') || lower.includes('amigo') || lower.includes('invite')) {
-    reply = helpRefs(lang);
+    reply = helpRefs();
   } else if (lower.includes('faq') || lower.includes('help') || lower.includes('ayuda')) {
-    reply = helpFaq(lang);
+    reply = helpFaq();
   } else if (lower.includes('support') || lower.includes('soporte')) {
-    reply = helpSupport(lang);
+    reply = helpSupport();
   }
 
   await sendTelegramMessage({
@@ -629,6 +516,6 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
     text: reply,
     parseMode: 'HTML',
     disablePreview: true,
-    replyMarkup: { inline_keyboard: mainKeyboard(lang) },
+    replyMarkup: { inline_keyboard: mainKeyboard() },
   });
 }

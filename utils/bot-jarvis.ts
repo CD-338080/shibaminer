@@ -156,6 +156,8 @@ export async function getJarvisBrief(): Promise<string> {
   ].join('\n');
 }
 
+export const PROMOTION_URL = 'https://t.me/AdEaslyLTCBot';
+
 export function jarvisKeyboard(): InlineKeyboard {
   return [
     [
@@ -166,10 +168,9 @@ export function jarvisKeyboard(): InlineKeyboard {
       { text: '📣 /send help', callback_data: 'jarvis_bcast_help' },
       { text: '🔄 Refresh', callback_data: 'jarvis_home' },
     ],
+    [{ text: '🎁 Promotion', url: PROMOTION_URL }],
   ];
 }
-
-export const PROMOTION_URL = 'https://t.me/AdEaslyLTCBot';
 
 function miniAppDeepLink(): string {
   const bot = (
@@ -181,12 +182,9 @@ function miniAppDeepLink(): string {
   return `https://t.me/${bot}/${short}`;
 }
 
-/** Buttons attached to every /send mass DM */
+/** Buttons on mass DMs to users — no promotion (admin-only) */
 export function broadcastKeyboard(): InlineKeyboard {
-  return [
-    [{ text: '🚀 Open Shiba Miner', url: miniAppDeepLink() }],
-    [{ text: '🎁 Promotion', url: PROMOTION_URL }],
-  ];
+  return [[{ text: '🚀 Open Shiba Miner', url: miniAppDeepLink() }]];
 }
 
 export async function lookupUser(telegramId: string): Promise<string> {
@@ -220,7 +218,7 @@ export type BroadcastResult = {
 /**
  * Send HTML message to every user with a numeric Telegram ID.
  * Skips invalid IDs like bypass "undefined".
- * Attaches Open Miner + Promotion buttons by default.
+ * Attaches Open Miner button by default (no promotion).
  */
 export async function broadcastToAllUsers(
   html: string,
@@ -262,23 +260,13 @@ export async function broadcastToAllUsers(
     if (res.ok) result.sent += 1;
     else result.failed += 1;
     opts?.onProgress?.(i + 1, targets.length);
-    // Soft rate-limit (~25 msg/s ceiling; stay safer)
     await new Promise((r) => setTimeout(r, 45));
   }
 
   return result;
 }
 
+/** /send body only — no announcement wrapper */
 export function formatBroadcastEnvelope(body: string): string {
-  const bot = (
-    process.env.NEXT_PUBLIC_BOT_USERNAME || 'Shiba_Inu_Pro_Miner_Bot'
-  ).replace(/^@/, '');
-  return [
-    `<b>🐾 Shiba Miner</b>`,
-    `<i>Announcement · @${bot}</i>`,
-    ``,
-    body.trim(),
-    ``,
-    `<i>Tap below to open the miner or check today’s promotion.</i>`,
-  ].join('\n');
+  return body.trim();
 }
