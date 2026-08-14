@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "next lint",
     "vercel-build": "prisma generate && next build",
-    "bot:poll": "node scripts/bot-poll.js"
+    "bot:poll": "node scripts/bot-poll.js",
+    "bot:webhook": "node scripts/set-webhook.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

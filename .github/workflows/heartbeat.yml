@@ -1,0 +1,24 @@
+# Keep payouts alive with the PC off (backup if Vercel Hobby cron is daily-only).
+name: heartbeat
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Tick live payouts
+        env:
+          BASE_URL: https://shibaminer-sigma.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 50 "${BASE_URL}/api/doge-payouts?t=$(date +%s)" >/dev/null
+          if [ -n "${CRON_SECRET}" ]; then
+            curl -fsS --max-time 50 -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${BASE_URL}/api/cron/heartbeat" >/dev/null || true
+          fi

@@ -1,12 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron/payout-announce",
+      "path": "/api/cron/heartbeat",
       "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/qa-announce",
-      "schedule": "0 16 * * *"
     }
   ]
 }

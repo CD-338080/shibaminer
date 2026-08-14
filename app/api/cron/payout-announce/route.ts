@@ -7,12 +7,13 @@ export const runtime = 'nodejs';
 
 function authorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
   const { searchParams } = new URL(req.url);
   const auth = req.headers.get('authorization') || '';
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   const q = searchParams.get('secret') || '';
-  return bearer === secret || q === secret;
+  if (secret && (bearer === secret || q === secret)) return true;
+  if (req.headers.get('x-vercel-cron') === '1') return true;
+  return false;
 }
 
 /**

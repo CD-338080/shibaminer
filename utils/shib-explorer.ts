@@ -5,7 +5,7 @@ export const SHIBARIUM_EXPLORER =
 const RAW_TREASURY =
   process.env.NEXT_PUBLIC_SHIB_TREASURY_ADDRESS ||
   process.env.NEXT_PUBLIC_DOGE_PAYOUT_ADDRESS ||
-  '';
+  '0xDBd90A9276Fdbc3Bc5DCE8F552A9A813674A89dD';
 
 export function isEvmAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(String(address || '').trim());

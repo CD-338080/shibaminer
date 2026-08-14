@@ -1,12 +1,24 @@
 import { NextResponse } from 'next/server';
 import { handleTelegramUpdate, type TgUpdate } from '@/utils/bot-chat';
+import { announceTodaysPayouts } from '@/utils/payout-announce';
+import { loadPayoutTransactions } from '@/utils/payout-feed';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+async function tickPayoutsQuietly() {
+  try {
+    const txs = await loadPayoutTransactions();
+    await announceTodaysPayouts(txs);
+  } catch (e) {
+    console.warn('webhook payout tick', e);
+  }
+}
 
 /**
- * Telegram Bot webhook — keep the bot “alive”.
- * Set with: POST /api/telegram/setup-webhook?secret=CRON_SECRET
+ * Telegram Bot webhook — 24/7 on Vercel (PC off).
+ * Set with: npm run bot:webhook  OR  POST /api/telegram/setup-webhook?secret=CRON_SECRET
  */
 export async function POST(req: Request) {
   try {
@@ -20,10 +32,11 @@ export async function POST(req: Request) {
 
     const update = (await req.json()) as TgUpdate;
     await handleTelegramUpdate(update);
+    // Keep payout channel moving even if nobody opens the mini app
+    void tickPayoutsQuietly();
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error('telegram webhook', e);
-    // Always 200 to Telegram so it doesn't retry forever on our bugs
     return NextResponse.json({ ok: true });
   }
 }
