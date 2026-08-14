@@ -7,21 +7,21 @@ export const runtime = 'nodejs';
 
 function normalizeClientTxs(raw: unknown): AnnounceablePayout[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => {
-      const row = item as Record<string, unknown>;
-      const txid = String(row.txid || row.hash || '').trim();
-      if (!txid) return null;
-      return {
-        txid,
-        timestamp: Number(row.timestamp) || Date.now(),
-        amount: String(row.amount ?? '0'),
-        address: String(row.address || row.to || ''),
-        explorerUrl: row.explorerUrl ? String(row.explorerUrl) : undefined,
-        type: row.type ? String(row.type) : 'Withdrawal',
-      } satisfies AnnounceablePayout;
-    })
-    .filter((tx): tx is AnnounceablePayout => Boolean(tx));
+  const out: AnnounceablePayout[] = [];
+  for (const item of raw) {
+    const row = item as Record<string, unknown>;
+    const txid = String(row.txid || row.hash || '').trim();
+    if (!txid) continue;
+    out.push({
+      txid,
+      timestamp: Number(row.timestamp) || Date.now(),
+      amount: String(row.amount ?? '0'),
+      address: String(row.address || row.to || ''),
+      explorerUrl: row.explorerUrl ? String(row.explorerUrl) : undefined,
+      type: row.type ? String(row.type) : 'Withdrawal',
+    });
+  }
+  return out;
 }
 
 /**
