@@ -13,8 +13,6 @@ import {
   jarvisKeyboard,
   lookupUser,
 } from '@/utils/bot-jarvis';
-import { announceTodaysPayouts } from '@/utils/payout-announce';
-import { loadPayoutTransactions } from '@/utils/payout-feed';
 
 function botUsername(): string {
   return (
@@ -367,29 +365,6 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
         chatId: msg.chat.id,
         text: info,
         parseMode: 'HTML',
-        replyMarkup: { inline_keyboard: jarvisKeyboard() },
-      });
-      return;
-    }
-
-    if (cmd === '/payout' || cmd === '/payout_send') {
-      const txs = await loadPayoutTransactions();
-      const result = await announceTodaysPayouts(txs, Date.now(), { force: true });
-      await sendTelegramMessage({
-        chatId: msg.chat.id,
-        text: [
-          `<b>JARVIS · Payout channel</b>`,
-          `Feed txs: <b>${txs.length}</b>`,
-          `Posted: <b>${result.posted}</b>`,
-          `Pending: ${result.pending}`,
-          `Channel: <code>${process.env.PAYOUT_CHANNEL_ID || 'missing'}</code>`,
-          result.error ? `Error: <code>${result.error}</code>` : 'OK',
-          result.txids?.length ? `Tx: <code>${result.txids[0]}</code>` : '',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-        parseMode: 'HTML',
-        disablePreview: true,
         replyMarkup: { inline_keyboard: jarvisKeyboard() },
       });
       return;

@@ -149,7 +149,6 @@ export async function getJarvisBrief(): Promise<string> {
     `/stats — quick stats`,
     `/send &lt;message&gt; — DM all users`,
     `/send_preview &lt;message&gt; — preview only`,
-    `/payout — post next payout to channel (force)`,
     `/user &lt;telegramId&gt; — lookup user`,
     ``,
     `Only authorized admin IDs can use Jarvis.`,

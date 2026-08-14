@@ -271,6 +271,21 @@ export default function Airdrop({ setCurrentView }: AirdropProps = {}) {
 
       setTransactions(processed);
       hasLoadedTxRef.current = true;
+
+      // Auto-post the same txs shown here to PAYOUT_CHANNEL (server paces + dedupes)
+      if (processed.length > 0) {
+        void fetch('/api/doge-payouts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactions: processed }),
+        })
+          .then(async (r) => {
+            const j = await r.json().catch(() => null);
+            if (j?.error) console.warn('payout channel:', j.error);
+            else if (j?.posted) console.log('payout channel posted', j.posted, j.txids);
+          })
+          .catch(() => undefined);
+      }
     } catch (e) {
       console.error('Error fetching SHIB transactions:', e);
       // Keep UI quiet — empty feed is fine without a toast spam
@@ -282,23 +297,8 @@ export default function Airdrop({ setCurrentView }: AirdropProps = {}) {
   useEffect(() => {
     fetchTransactions();
     const visualId = setInterval(fetchTransactions, 90000);
-    // Backup tick for paced channel posts (server gate enforces 10→8→4→1 min)
-    const announceOnce = () => {
-      void fetch(`/api/doge-payouts?announce=1&t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: { Pragma: 'no-cache', 'Cache-Control': 'no-cache' },
-      }).catch(() => undefined);
-      void fetch(`/api/qa-announce?announce=1&t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: { Pragma: 'no-cache', 'Cache-Control': 'no-cache' },
-      }).catch(() => undefined);
-    };
-    const announceDelay = window.setTimeout(announceOnce, 2500);
-    const announceId = window.setInterval(announceOnce, 60 * 1000);
     return () => {
       clearInterval(visualId);
-      window.clearTimeout(announceDelay);
-      window.clearInterval(announceId);
     };
   }, [fetchTransactions]);
 

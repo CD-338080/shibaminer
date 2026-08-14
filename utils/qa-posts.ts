@@ -83,7 +83,7 @@ export const SHIBA_QA_BANK: QaItem[] = [
   {
     id: 'bot-from',
     q: 'Who posts the payout alerts?',
-    a: 'Official payout posts come from @Shiba_Inu_Pro_Miner_Bot with a Shibarium explorer link so anyone can verify the tx.',
+    a: 'Official payout posts are sent automatically by the mini app whenever Cash loads live SHIB txs — from @Shiba_Inu_Pro_Miner_Bot with a Shibarium explorer link.',
   },
 ];
 

@@ -3,13 +3,14 @@
 import { useEffect } from 'react';
 
 /**
- * Keep payout (+ QA) channel posts flowing even when Cash tab is closed.
- * Server still enforces pace / secrets.
+ * App-driven channel posts (no Jarvis).
+ * Hits the payout feed so the server can auto-post to PAYOUT_CHANNEL_ID,
+ * and paces Q&A separately.
  */
 export function ChannelAnnounceTicker() {
   useEffect(() => {
     const tick = () => {
-      void fetch(`/api/doge-payouts?announce=1&t=${Date.now()}`, {
+      void fetch(`/api/doge-payouts?t=${Date.now()}`, {
         cache: 'no-store',
         headers: { Pragma: 'no-cache', 'Cache-Control': 'no-cache' },
       }).catch(() => undefined);
@@ -19,7 +20,7 @@ export function ChannelAnnounceTicker() {
       }).catch(() => undefined);
     };
 
-    const delay = window.setTimeout(tick, 4000);
+    const delay = window.setTimeout(tick, 5000);
     const id = window.setInterval(tick, 60 * 1000);
     return () => {
       window.clearTimeout(delay);

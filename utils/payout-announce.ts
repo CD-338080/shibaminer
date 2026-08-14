@@ -1,5 +1,4 @@
-import fs from 'fs';
-import path from 'path';
+import { MongoClient, type Db } from 'mongodb';
 import { sendTelegramMessage, normalizeTelegramChatId } from '@/utils/telegram-bot';
 import { truncateTxHash } from '@/utils/shib-explorer';
 
@@ -12,61 +11,33 @@ export type AnnounceablePayout = {
   type?: string;
 };
 
-type AnnounceState = {
-  announced: string[];
+const PACE_META_KEY = 'payout_announce_pace';
+const PACE_MINUTES = [10, 8, 4, 1];
+const COL_ANNOUNCED = 'payout_announced';
+const COL_META = 'app_meta';
+
+type PaceMeta = {
   lastAnnounceAt: number;
   paceIndex: number;
 };
 
-const PACE_MINUTES = [10, 8, 4, 1];
-
-function storePath(): string {
-  const base = process.env.VERCEL ? '/tmp' : path.join(process.cwd(), '.data');
-  return path.join(base, 'announced-payouts.json');
+declare global {
+  // eslint-disable-next-line no-var
+  var __shibPayoutMongo: MongoClient | undefined;
 }
 
-function loadState(): AnnounceState {
-  const g = globalThis as typeof globalThis & { __shibPayoutAnnounce?: AnnounceState };
-  if (g.__shibPayoutAnnounce) return g.__shibPayoutAnnounce;
-
-  let state: AnnounceState = { announced: [], lastAnnounceAt: 0, paceIndex: 0 };
+async function getDb(): Promise<Db | null> {
+  const uri = process.env.DATABASE_URL;
+  if (!uri) return null;
   try {
-    const p = storePath();
-    if (fs.existsSync(p)) {
-      const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as Partial<AnnounceState>;
-      state = {
-        announced: Array.isArray(raw.announced) ? raw.announced.slice(-500) : [],
-        lastAnnounceAt: Number(raw.lastAnnounceAt) || 0,
-        paceIndex: Number(raw.paceIndex) || 0,
-      };
+    if (!global.__shibPayoutMongo) {
+      global.__shibPayoutMongo = new MongoClient(uri);
+      await global.__shibPayoutMongo.connect();
     }
-  } catch {
-    /* ignore */
-  }
-  g.__shibPayoutAnnounce = state;
-  return state;
-}
-
-function saveState(state: AnnounceState) {
-  const g = globalThis as typeof globalThis & { __shibPayoutAnnounce?: AnnounceState };
-  g.__shibPayoutAnnounce = state;
-  try {
-    const p = storePath();
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(
-      p,
-      JSON.stringify(
-        {
-          announced: state.announced.slice(-500),
-          lastAnnounceAt: state.lastAnnounceAt,
-          paceIndex: state.paceIndex,
-        },
-        null,
-        0
-      )
-    );
+    return global.__shibPayoutMongo.db();
   } catch (e) {
-    console.warn('payout-announce save failed', e);
+    console.error('payout mongo connect failed', e);
+    return null;
   }
 }
 
@@ -86,7 +57,7 @@ function paceEnabled(): boolean {
   return v === '1' || v === 'true' || v === 'yes';
 }
 
-function currentIntervalMs(state: AnnounceState): number {
+function intervalForIndex(paceIndex: number): number {
   if (!paceEnabled()) return 0;
   const start = Number(process.env.PAYOUT_ANNOUNCE_MIN);
   const cycle =
@@ -94,8 +65,35 @@ function currentIntervalMs(state: AnnounceState): number {
       ? [start, ...PACE_MINUTES.filter((m) => m < start)]
       : PACE_MINUTES;
   const unique = Array.from(new Set(cycle));
-  const mins = unique[state.paceIndex % unique.length] ?? 10;
+  const mins = unique[paceIndex % unique.length] ?? 10;
   return mins * 60 * 1000;
+}
+
+async function loadPace(db: Db | null): Promise<PaceMeta> {
+  if (!db) return { lastAnnounceAt: 0, paceIndex: 0 };
+  try {
+    const row = await db.collection(COL_META).findOne({ key: PACE_META_KEY });
+    const v = (row?.value || {}) as Partial<PaceMeta>;
+    return {
+      lastAnnounceAt: Number(v.lastAnnounceAt) || 0,
+      paceIndex: Number(v.paceIndex) || 0,
+    };
+  } catch {
+    return { lastAnnounceAt: 0, paceIndex: 0 };
+  }
+}
+
+async function savePace(db: Db | null, meta: PaceMeta): Promise<void> {
+  if (!db) return;
+  try {
+    await db.collection(COL_META).updateOne(
+      { key: PACE_META_KEY },
+      { $set: { key: PACE_META_KEY, value: meta } },
+      { upsert: true }
+    );
+  } catch (e) {
+    console.warn('payout pace save failed', e);
+  }
 }
 
 export function formatPayoutChannelMessage(tx: AnnounceablePayout): string {
@@ -121,21 +119,37 @@ export function formatPayoutChannelMessage(tx: AnnounceablePayout): string {
   ].join('\n');
 }
 
-/** Today's / recent unannounced payouts, newest first */
-export function todaysUnannounced(txs: AnnounceablePayout[], now = Date.now()): AnnounceablePayout[] {
-  const state = loadState();
-  const announced = new Set(state.announced);
+async function filterUnannounced(
+  db: Db | null,
+  txs: AnnounceablePayout[],
+  now = Date.now()
+): Promise<AnnounceablePayout[]> {
   const dayStart = recentWindowStart(now);
-  return txs
-    .filter((tx) => tx.txid && tx.timestamp >= dayStart && !announced.has(tx.txid))
+  const recent = txs
+    .filter((tx) => tx.txid && tx.timestamp >= dayStart)
     .sort((a, b) => b.timestamp - a.timestamp);
+
+  if (!recent.length) return [];
+
+  if (!db) return recent;
+
+  try {
+    const ids = recent.map((t) => t.txid);
+    const rows = await db
+      .collection(COL_ANNOUNCED)
+      .find({ txid: { $in: ids } }, { projection: { txid: 1 } })
+      .toArray();
+    const already = new Set(rows.map((r) => String(r.txid)));
+    return recent.filter((tx) => !already.has(tx.txid));
+  } catch (e) {
+    console.warn('announced lookup failed', e);
+    return recent;
+  }
 }
 
 /**
- * Post recent (today) payouts to PAYOUT_CHANNEL_ID via BOT_TOKEN.
- * Paced mode: one tx every 10→8→4→1 minutes.
- * Burst mode (PAYOUT_PACE_ENABLED=false): up to 5 new txs at once.
- * force: skip pace gate for one batch.
+ * Post recent payouts (same feed as Cash / Airdrop) to PAYOUT_CHANNEL_ID.
+ * Automatic — triggered by the mini app when the feed loads. No Jarvis.
  */
 export async function announceTodaysPayouts(
   txs: AnnounceablePayout[],
@@ -163,11 +177,15 @@ export async function announceTodaysPayouts(
     };
   }
 
-  const state = loadState();
-  const pending = todaysUnannounced(txs, now);
-  const interval = currentIntervalMs(state);
+  const db = await getDb();
+  const pace = await loadPace(db);
+  const pending = await filterUnannounced(db, txs, now);
+  const interval = intervalForIndex(pace.paceIndex);
   const due =
-    !!opts?.force || !paceEnabled() || state.lastAnnounceAt === 0 || now - state.lastAnnounceAt >= interval;
+    !!opts?.force ||
+    !paceEnabled() ||
+    pace.lastAnnounceAt === 0 ||
+    now - pace.lastAnnounceAt >= interval;
 
   if (!pending.length) {
     return {
@@ -175,7 +193,7 @@ export async function announceTodaysPayouts(
       announced: false,
       posted: 0,
       pending: 0,
-      nextInMs: Math.max(0, interval - (now - state.lastAnnounceAt)),
+      nextInMs: Math.max(0, interval - (now - pace.lastAnnounceAt)),
     };
   }
 
@@ -185,7 +203,7 @@ export async function announceTodaysPayouts(
       announced: false,
       posted: 0,
       pending: pending.length,
-      nextInMs: Math.max(0, interval - (now - state.lastAnnounceAt)),
+      nextInMs: Math.max(0, interval - (now - pace.lastAnnounceAt)),
     };
   }
 
@@ -211,17 +229,33 @@ export async function announceTodaysPayouts(
         txids: postedTxids,
       };
     }
+
+    if (db) {
+      try {
+        await db.collection(COL_ANNOUNCED).updateOne(
+          { txid: tx.txid },
+          {
+            $set: {
+              txid: tx.txid,
+              amount: tx.amount,
+              announcedAt: new Date(now),
+            },
+          },
+          { upsert: true }
+        );
+      } catch (e) {
+        console.warn('announced save failed', e);
+      }
+    }
     postedTxids.push(tx.txid);
-    state.announced.push(tx.txid);
   }
 
-  state.lastAnnounceAt = now;
-  if (paceEnabled()) {
-    state.paceIndex = (state.paceIndex + 1) % PACE_MINUTES.length;
-  }
-  saveState(state);
+  const nextPace: PaceMeta = {
+    lastAnnounceAt: now,
+    paceIndex: paceEnabled() ? (pace.paceIndex + 1) % PACE_MINUTES.length : pace.paceIndex,
+  };
+  await savePace(db, nextPace);
 
-  const nextInterval = currentIntervalMs(state);
   console.log('payout announce posted', {
     posted: postedTxids.length,
     pending: Math.max(0, pending.length - postedTxids.length),
@@ -233,7 +267,7 @@ export async function announceTodaysPayouts(
     announced: true,
     posted: postedTxids.length,
     pending: Math.max(0, pending.length - postedTxids.length),
-    nextInMs: nextInterval,
+    nextInMs: intervalForIndex(nextPace.paceIndex),
     txids: postedTxids,
   };
 }
