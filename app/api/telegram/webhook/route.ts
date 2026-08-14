@@ -1,20 +1,10 @@
 import { NextResponse } from 'next/server';
 import { handleTelegramUpdate, type TgUpdate } from '@/utils/bot-chat';
-import { announceTodaysPayouts } from '@/utils/payout-announce';
-import { loadPayoutTransactions } from '@/utils/payout-feed';
+import { tickPayoutsQuietly } from '@/utils/run-channel-cron';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-async function tickPayoutsQuietly() {
-  try {
-    const txs = await loadPayoutTransactions();
-    await announceTodaysPayouts(txs);
-  } catch (e) {
-    console.warn('webhook payout tick', e);
-  }
-}
 
 /**
  * Telegram Bot webhook — 24/7 on Vercel (PC off).

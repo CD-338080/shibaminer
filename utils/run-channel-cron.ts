@@ -42,6 +42,15 @@ async function ensureWebhook(req: Request) {
   }
 }
 
+export async function tickPayoutsQuietly() {
+  try {
+    const transactions = await loadPayoutTransactions();
+    await announceTodaysPayouts(transactions);
+  } catch (e) {
+    console.warn('payout tick', e);
+  }
+}
+
 /** Jarvis webhook + payout channel + Q&A. Used by Vercel Cron. */
 export async function runChannelCron(req: Request, opts?: { force?: boolean }) {
   const webhook = await ensureWebhook(req);
