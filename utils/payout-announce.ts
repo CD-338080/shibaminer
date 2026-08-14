@@ -152,6 +152,42 @@ async function filterUnannounced(
   }
 }
 
+export function formatPayoutCountdown(ms: number): string {
+  if (ms <= 0) return 'now';
+  const sec = Math.max(1, Math.ceil(ms / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m <= 0) return `${s}s`;
+  if (s === 0) return `${m} min`;
+  return `${m} min ${s}s`;
+}
+
+/** Read-only: when the channel will post next. Does not send. */
+export async function getPayoutAnnounceStatus(
+  txs: AnnounceablePayout[],
+  now = Date.now()
+): Promise<{
+  pending: number;
+  nextInMs: number;
+  due: boolean;
+  intervalMs: number;
+  batch: number;
+}> {
+  const db = await getDb();
+  const pace = await loadPace(db);
+  const pending = await filterUnannounced(db, txs, now);
+  const interval = announceIntervalMs();
+  const elapsed = now - (pace.lastAnnounceAt || 0);
+  const due = pace.lastAnnounceAt === 0 || elapsed >= interval;
+  return {
+    pending: pending.length,
+    nextInMs: due ? 0 : Math.max(0, interval - elapsed),
+    due: due && pending.length > 0,
+    intervalMs: interval,
+    batch: batchSize(),
+  };
+}
+
 /**
  * Post recent payouts (same feed as Cash / Airdrop) to PAYOUT_CHANNEL_ID.
  * Automatic — mini app + cron. No Jarvis.

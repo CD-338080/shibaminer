@@ -1,6 +1,8 @@
 import prisma from '@/utils/prisma';
 import { sendTelegramMessage, type InlineKeyboard } from '@/utils/telegram-bot';
 import { utcDateKey } from '@/utils/daily-claim';
+import { formatPayoutCountdown, getPayoutAnnounceStatus } from '@/utils/payout-announce';
+import { loadPayoutTransactions } from '@/utils/payout-feed';
 
 export function getAdminIds(): Set<string> {
   const raw = [
@@ -130,22 +132,43 @@ export async function getAppGrowthReport(): Promise<string> {
   ].join('\n');
 }
 
+export async function getNextPayoutLine(): Promise<string> {
+  try {
+    const txs = await loadPayoutTransactions();
+    const st = await getPayoutAnnounceStatus(txs);
+    if (!st.pending) {
+      return `⏱ Next payout: waiting for new on-chain txs (cron every 5 min)`;
+    }
+    if (st.due) {
+      return `⏱ Next payout: <b>due now</b> · ${st.pending} queued · batch ${st.batch}`;
+    }
+    return `⏱ Next payout: <b>in ${formatPayoutCountdown(st.nextInMs)}</b> · ${st.pending} queued`;
+  } catch (e) {
+    console.error('jarvis next payout', e);
+    return `⏱ Next payout: unavailable`;
+  }
+}
+
 export async function getJarvisBrief(): Promise<string> {
   try {
-    const [total, mining, active24h] = await Promise.all([
+    const [total, mining, active24h, payoutLine] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { autoMineActive: true } }).catch(() => 0),
       prisma.user.count({
         where: { lastPointsUpdateTimestamp: { gte: new Date(Date.now() - 86400000) } },
       }),
+      getNextPayoutLine(),
     ]);
     return [
       `<b>🕹 JARVIS online</b>`,
+      ``,
+      payoutLine,
       ``,
       `Users: <b>${fmt(total)}</b> · Mining: <b>${fmt(mining)}</b> · 24h active: <b>${fmt(active24h)}</b>`,
       ``,
       `<b>Commands</b>`,
       `Send any message — Jarvis opens automatically`,
+      `/next — when the next channel payout goes out`,
       `/growth — full growth report`,
       `/stats — quick stats`,
       `/send &lt;message&gt; — DM all users`,
@@ -156,11 +179,14 @@ export async function getJarvisBrief(): Promise<string> {
     ].join('\n');
   } catch (e) {
     console.error('jarvis brief', e);
+    const payoutLine = await getNextPayoutLine();
     return [
       `<b>🕹 JARVIS online</b>`,
       ``,
+      payoutLine,
+      ``,
       `Stats temporarily unavailable.`,
-      `/growth · /stats · /send · /user`,
+      `/next · /growth · /stats · /send · /user`,
     ].join('\n');
   }
 }
@@ -169,6 +195,7 @@ export const PROMOTION_URL = 'https://t.me/AdEaslyLTCBot';
 
 export function jarvisKeyboard(): InlineKeyboard {
   return [
+    [{ text: '⏱ Next payout', callback_data: 'jarvis_next_payout' }],
     [
       { text: '📈 Growth', callback_data: 'jarvis_growth' },
       { text: '⚡ Quick stats', callback_data: 'jarvis_stats' },

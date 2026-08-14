@@ -9,6 +9,7 @@ import {
   formatBroadcastEnvelope,
   getAppGrowthReport,
   getJarvisBrief,
+  getNextPayoutLine,
   isJarvisAdmin,
   jarvisKeyboard,
   lookupUser,
@@ -235,6 +236,17 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
         });
         return;
       }
+      if (data === 'jarvis_next_payout') {
+        const line = await getNextPayoutLine();
+        await sendTelegramMessage({
+          chatId,
+          text: line,
+          parseMode: 'HTML',
+          disablePreview: true,
+          replyMarkup: { inline_keyboard: jarvisKeyboard() },
+        });
+        return;
+      }
       if (data === 'jarvis_growth') {
         const report = await getAppGrowthReport();
         await sendTelegramMessage({
@@ -313,6 +325,18 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
   // ——— Jarvis admin ———
   if (isJarvisAdmin(fromId)) {
     const cmd = lower.split(/\s+/)[0]?.split('@')[0] || '';
+
+    if (cmd === '/next' || cmd === '/payout' || cmd === '/nextpayout') {
+      const line = await getNextPayoutLine();
+      await sendTelegramMessage({
+        chatId: msg.chat.id,
+        text: line,
+        parseMode: 'HTML',
+        disablePreview: true,
+        replyMarkup: { inline_keyboard: jarvisKeyboard() },
+      });
+      return;
+    }
 
     if (cmd === '/growth') {
       const report = await getAppGrowthReport();
