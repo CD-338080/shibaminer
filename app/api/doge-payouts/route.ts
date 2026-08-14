@@ -23,7 +23,9 @@ type PayoutRow = {
 function formatShibAmount(value: string | number, decimals = 18): string {
   try {
     const raw = BigInt(String(value).split('.')[0] || '0');
-    const base = BigInt(10) ** BigInt(decimals);
+    let base = BigInt(1);
+    const ten = BigInt(10);
+    for (let i = 0; i < decimals; i++) base *= ten;
     const whole = raw / base;
     const frac = raw % base;
     if (frac === BigInt(0)) return whole.toLocaleString('en-US');

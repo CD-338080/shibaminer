@@ -130,8 +130,13 @@ function saveState(state: QaState) {
 }
 
 function intervalMs(): number {
-  const mins = Number(process.env.QA_ANNOUNCE_MIN) || 20;
-  return Math.max(1, mins) * 60 * 1000;
+  // Prefer hours (default 24). QA_ANNOUNCE_MIN overrides if set explicitly.
+  if (process.env.QA_ANNOUNCE_MIN) {
+    const mins = Number(process.env.QA_ANNOUNCE_MIN);
+    if (Number.isFinite(mins) && mins > 0) return mins * 60 * 1000;
+  }
+  const hours = Number(process.env.QA_ANNOUNCE_HOURS) || 24;
+  return Math.max(1, hours) * 60 * 60 * 1000;
 }
 
 function pickRandomQa(avoid: string[]): QaItem {

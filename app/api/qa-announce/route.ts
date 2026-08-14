@@ -3,7 +3,7 @@ import { announceRandomQa } from '@/utils/qa-posts';
 
 /**
  * Random app Q&A → QA_CHANNEL_ID via BOT_TOKEN.
- * Client polls ?announce=1 (rate-limited by QA_ANNOUNCE_MIN).
+ * Client polls ?announce=1 (rate-limited by QA_ANNOUNCE_HOURS, default 24h).
  * ?force=1 skips the interval (still needs CRON_SECRET if FORCE_QA_SECRET=1, optional).
  */
 export async function GET(req: Request) {

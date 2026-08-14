@@ -20,7 +20,7 @@ export async function GET(req: Request) {
     cache: 'no-store',
   });
   const data = await res.json().catch(() => ({}));
-  return NextResponse.json({ ok: true, via: 'cron', ...data });
+  return NextResponse.json({ via: 'cron', ...data });
 }
 
 export async function POST(req: Request) {

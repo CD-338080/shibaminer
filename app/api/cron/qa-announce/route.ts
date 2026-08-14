@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 
   const force = searchParams.get('force') !== '0';
   const result = await announceRandomQa({ force });
-  return NextResponse.json({ ok: true, via: 'cron', ...result });
+  return NextResponse.json({ via: 'cron', ...result });
 }
 
 export async function POST(req: Request) {
