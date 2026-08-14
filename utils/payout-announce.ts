@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { sendTelegramMessage } from '@/utils/telegram-bot';
+import { sendTelegramMessage, normalizeTelegramChatId } from '@/utils/telegram-bot';
 import { truncateTxHash } from '@/utils/shib-explorer';
 
 export type AnnounceablePayout = {
@@ -71,7 +71,6 @@ function saveState(state: AnnounceState) {
 }
 
 function recentWindowStart(now = Date.now()): number {
-  // "pagos del día" ≈ last 24 hours (covers local day across UTC offset)
   const hours = Number(process.env.PAYOUT_LOOKBACK_HOURS) || 24;
   return now - hours * 60 * 60 * 1000;
 }
@@ -122,7 +121,7 @@ export function formatPayoutChannelMessage(tx: AnnounceablePayout): string {
   ].join('\n');
 }
 
-/** Today's (local TZ) / recent unannounced payouts, newest first */
+/** Today's / recent unannounced payouts, newest first */
 export function todaysUnannounced(txs: AnnounceablePayout[], now = Date.now()): AnnounceablePayout[] {
   const state = loadState();
   const announced = new Set(state.announced);
@@ -136,10 +135,12 @@ export function todaysUnannounced(txs: AnnounceablePayout[], now = Date.now()): 
  * Post recent (today) payouts to PAYOUT_CHANNEL_ID via BOT_TOKEN.
  * Paced mode: one tx every 10→8→4→1 minutes.
  * Burst mode (PAYOUT_PACE_ENABLED=false): up to 5 new txs at once.
+ * force: skip pace gate for one batch.
  */
 export async function announceTodaysPayouts(
   txs: AnnounceablePayout[],
-  now = Date.now()
+  now = Date.now(),
+  opts?: { force?: boolean }
 ): Promise<{
   ok: boolean;
   announced: boolean;
@@ -149,8 +150,8 @@ export async function announceTodaysPayouts(
   error?: string;
   txids?: string[];
 }> {
-  const channel = process.env.PAYOUT_CHANNEL_ID;
-  const token = process.env.BOT_TOKEN;
+  const channel = normalizeTelegramChatId(process.env.PAYOUT_CHANNEL_ID);
+  const token = process.env.BOT_TOKEN?.trim().replace(/^["']|["']$/g, '');
   if (!token || !channel) {
     return {
       ok: false,
@@ -165,7 +166,8 @@ export async function announceTodaysPayouts(
   const state = loadState();
   const pending = todaysUnannounced(txs, now);
   const interval = currentIntervalMs(state);
-  const due = !paceEnabled() || now - state.lastAnnounceAt >= interval;
+  const due =
+    !!opts?.force || !paceEnabled() || state.lastAnnounceAt === 0 || now - state.lastAnnounceAt >= interval;
 
   if (!pending.length) {
     return {
@@ -198,13 +200,14 @@ export async function announceTodaysPayouts(
       disablePreview: false,
     });
     if (!sent.ok) {
+      console.error('payout announce send failed', sent.error, { channel, txid: tx.txid });
       return {
         ok: false,
         announced: postedTxids.length > 0,
         posted: postedTxids.length,
         pending: pending.length - postedTxids.length,
         nextInMs: interval,
-        error: sent.error,
+        error: sent.error || 'telegram_send_failed',
         txids: postedTxids,
       };
     }
@@ -219,6 +222,12 @@ export async function announceTodaysPayouts(
   saveState(state);
 
   const nextInterval = currentIntervalMs(state);
+  console.log('payout announce posted', {
+    posted: postedTxids.length,
+    pending: Math.max(0, pending.length - postedTxids.length),
+    channel,
+  });
+
   return {
     ok: true,
     announced: true,

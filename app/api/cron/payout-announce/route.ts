@@ -1,26 +1,60 @@
 import { NextResponse } from 'next/server';
+import { announceTodaysPayouts } from '@/utils/payout-announce';
+import { loadPayoutTransactions } from '@/utils/payout-feed';
 
-/**
- * Cron / manual trigger for payout channel posts.
- * Auth: Authorization: Bearer CRON_SECRET  OR  ?secret=CRON_SECRET
- */
-export async function GET(req: Request) {
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+function authorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
   const { searchParams } = new URL(req.url);
   const auth = req.headers.get('authorization') || '';
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   const q = searchParams.get('secret') || '';
+  return bearer === secret || q === secret;
+}
 
-  if (!secret || (bearer !== secret && q !== secret)) {
+/**
+ * Cron / manual trigger for payout channel posts.
+ * Auth: Authorization: Bearer CRON_SECRET  OR  ?secret=CRON_SECRET
+ * Optional: ?force=1 to skip pace (post one/batch now)
+ */
+export async function GET(req: Request) {
+  if (!authorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const origin = new URL(req.url).origin;
-  const res = await fetch(`${origin}/api/doge-payouts?announce=1&t=${Date.now()}`, {
-    cache: 'no-store',
-  });
-  const data = await res.json().catch(() => ({}));
-  return NextResponse.json({ via: 'cron', ...data });
+  const force = new URL(req.url).searchParams.get('force') === '1';
+
+  try {
+    const transactions = await loadPayoutTransactions();
+    const result = await announceTodaysPayouts(transactions, Date.now(), { force });
+
+    return NextResponse.json({
+      via: 'cron',
+      ok: result.ok,
+      announced: result.announced,
+      posted: result.posted,
+      pending: result.pending,
+      nextInMs: result.nextInMs,
+      count: transactions.length,
+      txids: result.txids,
+      error: result.error,
+      channel: process.env.PAYOUT_CHANNEL_ID?.replace(/^["']|["']$/g, '') || null,
+      hasBotToken: Boolean(process.env.BOT_TOKEN),
+    });
+  } catch (e) {
+    console.error('cron payout-announce', e);
+    return NextResponse.json(
+      {
+        via: 'cron',
+        ok: false,
+        error: e instanceof Error ? e.message : 'announce_failed',
+      },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: Request) {

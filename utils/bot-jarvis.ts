@@ -147,8 +147,9 @@ export async function getJarvisBrief(): Promise<string> {
     `Send any message — Jarvis opens automatically`,
     `/growth — full growth report`,
     `/stats — quick stats`,
-    `/broadcast &lt;message&gt; — DM all users`,
-    `/broadcast_preview &lt;message&gt; — preview only`,
+    `/send &lt;message&gt; — DM all users`,
+    `/send_preview &lt;message&gt; — preview only`,
+    `/payout — post next payout to channel (force)`,
     `/user &lt;telegramId&gt; — lookup user`,
     ``,
     `Only authorized admin IDs can use Jarvis.`,
@@ -162,9 +163,29 @@ export function jarvisKeyboard(): InlineKeyboard {
       { text: '⚡ Quick stats', callback_data: 'jarvis_stats' },
     ],
     [
-      { text: '📣 Broadcast help', callback_data: 'jarvis_bcast_help' },
+      { text: '📣 /send help', callback_data: 'jarvis_bcast_help' },
       { text: '🔄 Refresh', callback_data: 'jarvis_home' },
     ],
+  ];
+}
+
+export const PROMOTION_URL = 'https://t.me/AdEaslyLTCBot';
+
+function miniAppDeepLink(): string {
+  const bot = (
+    process.env.NEXT_PUBLIC_BOT_USERNAME ||
+    process.env.PAYOUT_BOT_USERNAME ||
+    'Shiba_Inu_Pro_Miner_Bot'
+  ).replace(/^@/, '');
+  const short = process.env.NEXT_PUBLIC_TG_APP_SHORT_NAME || 'SHIB';
+  return `https://t.me/${bot}/${short}`;
+}
+
+/** Buttons attached to every /send mass DM */
+export function broadcastKeyboard(): InlineKeyboard {
+  return [
+    [{ text: '🚀 Open Shiba Miner', url: miniAppDeepLink() }],
+    [{ text: '🎁 Promotion', url: PROMOTION_URL }],
   ];
 }
 
@@ -199,10 +220,16 @@ export type BroadcastResult = {
 /**
  * Send HTML message to every user with a numeric Telegram ID.
  * Skips invalid IDs like bypass "undefined".
+ * Attaches Open Miner + Promotion buttons by default.
  */
 export async function broadcastToAllUsers(
   html: string,
-  opts?: { dryRun?: boolean; onProgress?: (done: number, total: number) => void }
+  opts?: {
+    dryRun?: boolean;
+    onProgress?: (done: number, total: number) => void;
+    replyMarkup?: { inline_keyboard: InlineKeyboard };
+    disablePreview?: boolean;
+  }
 ): Promise<BroadcastResult> {
   const users = await prisma.user.findMany({
     select: { telegramId: true },
@@ -221,13 +248,16 @@ export async function broadcastToAllUsers(
 
   if (opts?.dryRun) return result;
 
+  const replyMarkup = opts?.replyMarkup ?? { inline_keyboard: broadcastKeyboard() };
+
   for (let i = 0; i < targets.length; i++) {
     const id = targets[i]!;
     const res = await sendTelegramMessage({
       chatId: id,
       text: html,
       parseMode: 'HTML',
-      disablePreview: true,
+      disablePreview: opts?.disablePreview ?? true,
+      replyMarkup,
     });
     if (res.ok) result.sent += 1;
     else result.failed += 1;
@@ -245,8 +275,10 @@ export function formatBroadcastEnvelope(body: string): string {
   ).replace(/^@/, '');
   return [
     `<b>🐾 Shiba Miner</b>`,
-    `<i>from @${bot}</i>`,
+    `<i>Announcement · @${bot}</i>`,
     ``,
     body.trim(),
+    ``,
+    `<i>Tap below to open the miner or check today’s promotion.</i>`,
   ].join('\n');
 }

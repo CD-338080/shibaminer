@@ -4,6 +4,7 @@ import {
   type InlineKeyboard,
 } from '@/utils/telegram-bot';
 import {
+  broadcastKeyboard,
   broadcastToAllUsers,
   formatBroadcastEnvelope,
   getAppGrowthReport,
@@ -11,7 +12,10 @@ import {
   isJarvisAdmin,
   jarvisKeyboard,
   lookupUser,
+  PROMOTION_URL,
 } from '@/utils/bot-jarvis';
+import { announceTodaysPayouts } from '@/utils/payout-announce';
+import { loadPayoutTransactions } from '@/utils/payout-feed';
 
 function botUsername(): string {
   return (
@@ -379,17 +383,22 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
         await sendTelegramMessage({
           chatId,
           text: [
-            `<b>📣 Broadcast</b>`,
+            `<b>📣 /send — mass DM</b>`,
             ``,
             `Send to every numeric Telegram user in the DB:`,
-            `<code>/broadcast Your message here</code>`,
+            `<code>/send Your message here</code>`,
             ``,
-            `Preview audience size only:`,
-            `<code>/broadcast_preview Hello miners</code>`,
+            `Preview audience + message (no send):`,
+            `<code>/send_preview Hello miners</code>`,
+            ``,
+            `Each DM includes buttons:`,
+            `• <b>Open Shiba Miner</b>`,
+            `• <b>Promotion</b> → <a href="${PROMOTION_URL}">AdEasly LTC</a>`,
             ``,
             `HTML is supported (keep it simple).`,
           ].join('\n'),
           parseMode: 'HTML',
+          disablePreview: true,
           replyMarkup: { inline_keyboard: jarvisKeyboard() },
         });
         return;
@@ -474,54 +483,99 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
       return;
     }
 
-    if (cmd === '/broadcast_preview' || cmd === '/broadcast') {
-      const body = text.replace(/^\/broadcast(_preview)?(@\w+)?\s*/i, '').trim();
+    if (cmd === '/payout' || cmd === '/payout_send') {
+      const txs = await loadPayoutTransactions();
+      const result = await announceTodaysPayouts(txs, Date.now(), { force: true });
+      await sendTelegramMessage({
+        chatId: msg.chat.id,
+        text: [
+          `<b>JARVIS · Payout channel</b>`,
+          `Feed txs: <b>${txs.length}</b>`,
+          `Posted: <b>${result.posted}</b>`,
+          `Pending: ${result.pending}`,
+          `Channel: <code>${process.env.PAYOUT_CHANNEL_ID || 'missing'}</code>`,
+          result.error ? `Error: <code>${result.error}</code>` : 'OK',
+          result.txids?.length ? `Tx: <code>${result.txids[0]}</code>` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        parseMode: 'HTML',
+        disablePreview: true,
+        replyMarkup: { inline_keyboard: jarvisKeyboard() },
+      });
+      return;
+    }
+
+    if (
+      cmd === '/send' ||
+      cmd === '/send_preview' ||
+      cmd === '/broadcast' ||
+      cmd === '/broadcast_preview'
+    ) {
+      const body = text
+        .replace(/^\/(send|broadcast)(_preview)?(@\w+)?\s*/i, '')
+        .trim();
       if (!body) {
         await sendTelegramMessage({
           chatId: msg.chat.id,
-          text: 'Usage: <code>/broadcast Message to all users</code>',
-          parseMode: 'HTML',
-          replyMarkup: { inline_keyboard: jarvisKeyboard() },
-        });
-        return;
-      }
-      const dryRun = cmd === '/broadcast_preview';
-      const envelope = formatBroadcastEnvelope(body);
-
-      if (dryRun) {
-        const preview = await broadcastToAllUsers(envelope, { dryRun: true });
-        await sendTelegramMessage({
-          chatId: msg.chat.id,
           text: [
-            `<b>Broadcast preview</b>`,
-            `Targets: <b>${preview.total}</b>`,
-            `Skipped invalid IDs: ${preview.skipped}`,
+            `<b>Usage</b>`,
+            `<code>/send Your message here</code>`,
+            `<code>/send_preview Draft message</code>`,
             ``,
-            `<b>Message:</b>`,
-            envelope,
+            `Buttons auto-added: Open Shiba Miner · Promotion`,
           ].join('\n'),
           parseMode: 'HTML',
           replyMarkup: { inline_keyboard: jarvisKeyboard() },
         });
         return;
       }
+      const dryRun = cmd === '/send_preview' || cmd === '/broadcast_preview';
+      const envelope = formatBroadcastEnvelope(body);
+      const buttons = broadcastKeyboard();
+
+      if (dryRun) {
+        const preview = await broadcastToAllUsers(envelope, { dryRun: true });
+        await sendTelegramMessage({
+          chatId: msg.chat.id,
+          text: [
+            `<b>/send preview</b>`,
+            `Targets: <b>${preview.total}</b>`,
+            `Skipped invalid IDs: ${preview.skipped}`,
+            ``,
+            `<b>Message:</b>`,
+            envelope,
+            ``,
+            `<b>Buttons:</b> Open Shiba Miner · Promotion`,
+          ].join('\n'),
+          parseMode: 'HTML',
+          disablePreview: true,
+          replyMarkup: { inline_keyboard: buttons },
+        });
+        return;
+      }
 
       await sendTelegramMessage({
         chatId: msg.chat.id,
-        text: `JARVIS: broadcasting to users…`,
+        text: `JARVIS: /send in progress…`,
         parseMode: 'HTML',
       });
-      const result = await broadcastToAllUsers(envelope);
+      const result = await broadcastToAllUsers(envelope, {
+        replyMarkup: { inline_keyboard: buttons },
+      });
       await sendTelegramMessage({
         chatId: msg.chat.id,
         text: [
-          `<b>JARVIS · Broadcast complete</b>`,
+          `<b>JARVIS · /send complete</b>`,
           `Targets: ${result.total}`,
           `Sent: <b>${result.sent}</b>`,
           `Failed: ${result.failed}`,
           `Skipped: ${result.skipped}`,
+          ``,
+          `Promotion: <a href="${PROMOTION_URL}">AdEasly LTC</a>`,
         ].join('\n'),
         parseMode: 'HTML',
+        disablePreview: true,
         replyMarkup: { inline_keyboard: jarvisKeyboard() },
       });
       return;
@@ -540,6 +594,7 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
 
   if (
     lower.startsWith('/jarvis') ||
+    lower.startsWith('/send') ||
     lower.startsWith('/broadcast') ||
     lower.startsWith('/growth') ||
     lower.startsWith('/admin')

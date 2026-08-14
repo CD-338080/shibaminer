@@ -41,8 +41,15 @@ if (!token) {
 const WEBHOOK_URL =
   process.env.BOT_POLL_WEBHOOK_URL || 'http://127.0.0.1:3000/api/telegram/webhook';
 const SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || process.env.CRON_SECRET || '';
+const APP_BASE = (
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.APP_URL ||
+  process.env.BOT_POLL_APP_URL ||
+  ''
+).replace(/\/$/, '');
 
 let offset = 0;
+let lastPayoutTick = 0;
 
 async function api(method, body) {
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
@@ -51,6 +58,32 @@ async function api(method, body) {
     body: JSON.stringify(body || {}),
   });
   return res.json();
+}
+
+async function tickPayoutAnnounce() {
+  if (!APP_BASE || !SECRET) return;
+  const now = Date.now();
+  if (now - lastPayoutTick < 55_000) return;
+  lastPayoutTick = now;
+  try {
+    const url = `${APP_BASE}/api/cron/payout-announce?secret=${encodeURIComponent(SECRET)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (data.posted) {
+      console.log('payout posted', data.posted, data.txids || []);
+    } else if (data.error) {
+      console.warn('payout announce', data.error, 'pending=', data.pending);
+    } else {
+      console.log(
+        'payout tick pending=',
+        data.pending ?? 0,
+        'nextInMs=',
+        data.nextInMs ?? '—'
+      );
+    }
+  } catch (e) {
+    console.warn('payout tick failed', e.message || e);
+  }
 }
 
 async function forward(update) {
@@ -73,10 +106,19 @@ async function main() {
     WEBHOOK_URL,
     '@' + (process.env.NEXT_PUBLIC_BOT_USERNAME || 'bot')
   );
+  if (APP_BASE) {
+    console.log('Payout announce tick →', APP_BASE + '/api/cron/payout-announce');
+  } else {
+    console.warn(
+      'Set NEXT_PUBLIC_APP_URL or APP_URL to enable payout channel ticks from bot:poll'
+    );
+  }
   await api('deleteWebhook', { drop_pending_updates: false });
+  void tickPayoutAnnounce();
 
   for (;;) {
     try {
+      void tickPayoutAnnounce();
       const url = `https://api.telegram.org/bot${token}/getUpdates?timeout=25&offset=${offset}&allowed_updates=${encodeURIComponent(
         JSON.stringify(['message', 'callback_query'])
       )}`;

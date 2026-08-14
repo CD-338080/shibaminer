@@ -27,6 +27,7 @@ import { energyUpgradeBaseBenefit } from '@/utils/consts';
 import Boost from '@/components/Boost';
 import { AutoIncrement } from '@/components/AutoIncrement';
 import { PointSynchronizer } from '@/components/PointSynchronizer';
+import { ChannelAnnounceTicker } from '@/components/ChannelAnnounceTicker';
 import Settings from '@/components/Settings';
 
 function ClickerPage() {
@@ -84,6 +85,7 @@ function ClickerPage() {
                 <>
                     <AutoIncrement />
                     <PointSynchronizer />
+                    <ChannelAnnounceTicker />
                 </>
             }
             {renderCurrentView()}

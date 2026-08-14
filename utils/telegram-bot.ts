@@ -8,7 +8,14 @@ type InlineButton =
 export type InlineKeyboard = InlineButton[][];
 
 function botToken(): string | null {
-  return process.env.BOT_TOKEN || null;
+  const t = process.env.BOT_TOKEN?.trim().replace(/^["']|["']$/g, '');
+  return t || null;
+}
+
+export function normalizeTelegramChatId(raw?: string | number | null): string | null {
+  if (raw == null || raw === '') return null;
+  const id = String(raw).trim().replace(/^["']|["']$/g, '');
+  return id || null;
 }
 
 export async function telegramApi(
@@ -41,7 +48,7 @@ export async function sendTelegramMessage(opts: {
   disablePreview?: boolean;
   replyMarkup?: { inline_keyboard: InlineKeyboard };
 }): Promise<{ ok: boolean; error?: string; result?: unknown }> {
-  const chatId = opts.chatId ?? process.env.PAYOUT_CHANNEL_ID;
+  const chatId = normalizeTelegramChatId(opts.chatId ?? process.env.PAYOUT_CHANNEL_ID);
   if (!chatId) return { ok: false, error: 'chat_id missing' };
 
   return telegramApi('sendMessage', {

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { sendTelegramMessage } from '@/utils/telegram-bot';
+import { sendTelegramMessage, normalizeTelegramChatId } from '@/utils/telegram-bot';
 
 export type QaItem = {
   id: string;
@@ -179,8 +179,8 @@ export async function announceRandomQa(
   qaId?: string;
   error?: string;
 }> {
-  const channel = process.env.QA_CHANNEL_ID;
-  const token = process.env.BOT_TOKEN;
+  const channel = normalizeTelegramChatId(process.env.QA_CHANNEL_ID);
+  const token = process.env.BOT_TOKEN?.trim().replace(/^["']|["']$/g, '');
   const now = opts?.now ?? Date.now();
 
   if (!token) {
