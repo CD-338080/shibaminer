@@ -15,6 +15,7 @@ import {
   shibariumTxUrl,
   truncateTxHash,
 } from '@/utils/shib-explorer';
+import { MINIMUM_WITHDRAW_SHIB } from '@/utils/consts';
 
 function ShibaToken({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
   const px = size === 'lg' ? 56 : size === 'sm' ? 32 : 48;
@@ -40,7 +41,7 @@ type PayoutTx = {
   explorerUrl?: string;
 };
 
-const MINIMUM_WITHDRAW = 1424;
+const MINIMUM_WITHDRAW = MINIMUM_WITHDRAW_SHIB;
 const MINER_WALLET_URL = SHIBARIUM_TREASURY
   ? shibariumAddressUrl(SHIBARIUM_TREASURY)
   : SHIBARIUM_EXPLORER;

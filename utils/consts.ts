@@ -136,6 +136,10 @@ export const TASK_WAIT_TIME = 60 * 60 * 1000; // 1 hour in milliseconds
 export const REFERRAL_BONUS_BASE = 5000; // SHIB for you + friend (standard invite)
 export const REFERRAL_BONUS_PREMIUM = 25000; // SHIB for you + friend (Telegram Premium invite)
 
+/** Cash withdrawal gates */
+export const MINIMUM_WITHDRAW_SHIB = 22321428.57142857;
+export const MINIMUM_WITHDRAW_REFERRALS = 10;
+
 
 // Multitap
 export const multitapUpgradeBasePrice = 1000;

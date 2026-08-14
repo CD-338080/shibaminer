@@ -6,6 +6,7 @@ import { formatNumber, triggerHapticFeedback } from '@/utils/ui';
 import { useGameStore } from '@/utils/game-mechanics';
 import { useToast } from '@/contexts/ToastContext';
 import { getRecommendedPlan, MINE_SHOWCASE_KEY } from '@/utils/mining-plans';
+import { MINIMUM_WITHDRAW_REFERRALS, MINIMUM_WITHDRAW_SHIB } from '@/utils/consts';
 
 interface WithdrawPopupProps {
   onClose: () => void;
@@ -38,8 +39,8 @@ const WithdrawPopup: React.FC<WithdrawPopupProps> = ({
   const [userWalletAddress, setUserWalletAddress] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState(balance.toString());
 
-  const MINIMUM_WITHDRAW = minimumWithdraw > 0 ? minimumWithdraw : 1424;
-  const MINIMUM_REFERRAL = 10;
+  const MINIMUM_WITHDRAW = minimumWithdraw > 0 ? minimumWithdraw : MINIMUM_WITHDRAW_SHIB;
+  const MINIMUM_REFERRAL = MINIMUM_WITHDRAW_REFERRALS;
 
   const addressTrimmed = userWalletAddress.trim();
   const addressTouched = addressTrimmed.length > 0;

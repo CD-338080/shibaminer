@@ -18,7 +18,7 @@ export const SHIBA_QA_BANK: QaItem[] = [
   {
     id: 'withdraw-min',
     q: 'What is the minimum to withdraw?',
-    a: 'You need at least 1,424 SHIB in your vault (Cash tab) before you can request a withdrawal to an ERC-20 address.',
+    a: 'You need at least 22,321,428.57 SHIB in your Cash vault and a minimum of 10 referrals (Pack) before you can request a withdrawal to an ERC-20 address.',
   },
   {
     id: 'pay-networks',

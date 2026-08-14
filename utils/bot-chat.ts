@@ -119,7 +119,8 @@ function helpWithdraw(): string {
   return [
     `<b>💰 Withdrawals</b>`,
     ``,
-    `• Minimum: <b>1,424 SHIB</b> in your Cash vault`,
+    `• Minimum: <b>22,321,428.57 SHIB</b> in your Cash vault`,
+    `• Also need at least <b>10 referrals</b> (Pack)`,
     `• Wallet: EVM address <code>0x…</code>`,
     `• On-chain payouts are posted for Shibarium verification`,
     ``,
