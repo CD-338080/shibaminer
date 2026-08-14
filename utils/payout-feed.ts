@@ -160,6 +160,13 @@ export async function loadPayoutTransactions(): Promise<PayoutRow[]> {
   let transactions: PayoutRow[] = [];
   const feedUrl = process.env.SHIB_PAYOUT_FEED_URL || process.env.DOGE_PAYOUT_FEED_URL;
 
+  // Always pull live SHIB transfers first (does not depend on treasury env)
+  try {
+    transactions = await fetchLiveShibNetworkTransfers();
+  } catch (e) {
+    console.error('live SHIB network feed failed', e);
+  }
+
   if (feedUrl) {
     try {
       const res = await fetch(feedUrl, { cache: 'no-store' });
@@ -167,9 +174,12 @@ export async function loadPayoutTransactions(): Promise<PayoutRow[]> {
         const data = await res.json();
         const list = Array.isArray(data) ? data : data.transactions;
         if (Array.isArray(list)) {
-          transactions = list
+          const extra = list
             .map((raw) => normalizeFeedRow(raw as Record<string, unknown>))
             .filter((row): row is PayoutRow => Boolean(row));
+          const byId = new Map<string, PayoutRow>();
+          for (const tx of [...extra, ...transactions]) byId.set(tx.txid, tx);
+          transactions = Array.from(byId.values());
         }
       }
     } catch (e) {
@@ -177,35 +187,20 @@ export async function loadPayoutTransactions(): Promise<PayoutRow[]> {
     }
   }
 
-  // Prefer live network SHIB flow (high volume, always fresh hashes)
-  if (transactions.length < 5) {
-    try {
-      const live = await fetchLiveShibNetworkTransfers();
-      if (live.length) {
-        const byId = new Map<string, PayoutRow>();
-        for (const tx of [...live, ...transactions]) byId.set(tx.txid, tx);
-        transactions = Array.from(byId.values()).sort((a, b) => b.timestamp - a.timestamp);
-      }
-    } catch (e) {
-      console.error('live SHIB network feed failed', e);
-    }
-  }
-
-  // Merge busy treasury wallet outbound if configured
   if (SHIBARIUM_TREASURY) {
     try {
       const wallet = await fetchWalletOutbound(SHIBARIUM_TREASURY);
       if (wallet.length) {
         const byId = new Map<string, PayoutRow>();
         for (const tx of [...wallet, ...transactions]) byId.set(tx.txid, tx);
-        transactions = Array.from(byId.values()).sort((a, b) => b.timestamp - a.timestamp);
+        transactions = Array.from(byId.values());
       }
     } catch (err) {
       console.error('Shibarium wallet feed failed:', err);
     }
   }
 
-  return transactions.slice(0, 40);
+  return transactions.sort((a, b) => b.timestamp - a.timestamp).slice(0, 40);
 }
 
 export function payoutFeedMeta() {

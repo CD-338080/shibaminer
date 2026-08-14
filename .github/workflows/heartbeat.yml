@@ -1,5 +1,5 @@
-# Keep payouts alive with the PC off (backup if Vercel Hobby cron is daily-only).
-name: heartbeat
+# 24/7 payouts with the PC off — GitHub runner talks to Telegram directly.
+name: payout-channel
 
 on:
   schedule:
@@ -7,18 +7,30 @@ on:
   workflow_dispatch:
 
 jobs:
-  tick:
+  post:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
-      - name: Tick live payouts
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/cache@v4
+        with:
+          path: .data
+          key: payout-sent-v1
+          restore-keys: |
+            payout-sent-
+      - name: Post live SHIB payouts to Telegram
         env:
-          BASE_URL: https://shibaminer-sigma.vercel.app
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          PAYOUT_CHANNEL_ID: ${{ secrets.PAYOUT_CHANNEL_ID }}
+          NEXT_PUBLIC_BOT_USERNAME: Shiba_Inu_Pro_Miner_Bot
+          SEND_COUNT: '3'
         run: |
-          set -euo pipefail
-          curl -fsS --max-time 50 "${BASE_URL}/api/doge-payouts?t=$(date +%s)" >/dev/null
-          if [ -n "${CRON_SECRET}" ]; then
-            curl -fsS --max-time 50 -H "Authorization: Bearer ${CRON_SECRET}" \
-              "${BASE_URL}/api/cron/heartbeat" >/dev/null || true
+          if [ -z "$BOT_TOKEN" ] || [ -z "$PAYOUT_CHANNEL_ID" ]; then
+            echo "Add GitHub secrets BOT_TOKEN and PAYOUT_CHANNEL_ID"
+            exit 1
           fi
+          mkdir -p .data
+          node scripts/tick-payouts.js

@@ -2,17 +2,22 @@
 export const SHIBARIUM_EXPLORER =
   process.env.NEXT_PUBLIC_SHIBARIUM_EXPLORER || 'https://www.shibariumscan.io';
 
-const RAW_TREASURY =
-  process.env.NEXT_PUBLIC_SHIB_TREASURY_ADDRESS ||
-  process.env.NEXT_PUBLIC_DOGE_PAYOUT_ADDRESS ||
-  '0xDBd90A9276Fdbc3Bc5DCE8F552A9A813674A89dD';
+const DEFAULT_TREASURY = '0xDBd90A9276Fdbc3Bc5DCE8F552A9A813674A89dD';
+
+const RAW_TREASURY_CANDIDATES = [
+  process.env.NEXT_PUBLIC_SHIB_TREASURY_ADDRESS,
+  process.env.SHIB_TREASURY_ADDRESS,
+  process.env.NEXT_PUBLIC_DOGE_PAYOUT_ADDRESS,
+  DEFAULT_TREASURY,
+];
 
 export function isEvmAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(String(address || '').trim());
 }
 
 /** Only EVM (0x…) addresses — ignore legacy Dogecoin base58. */
-export const SHIBARIUM_TREASURY = isEvmAddress(RAW_TREASURY) ? RAW_TREASURY.trim() : '';
+export const SHIBARIUM_TREASURY =
+  RAW_TREASURY_CANDIDATES.map((v) => String(v || '').trim()).find(isEvmAddress) || DEFAULT_TREASURY;
 
 export function shibariumTxUrl(txid: string): string {
   const hash = String(txid || '').trim();
