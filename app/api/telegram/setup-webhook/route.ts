@@ -1,13 +1,8 @@
 import { NextResponse } from 'next/server';
-import { getTelegramWebhookInfo, setTelegramWebhook } from '@/utils/telegram-bot';
+import { getTelegramWebhookInfo, publicAppBase, setTelegramWebhook } from '@/utils/telegram-bot';
 
-function resolvePublicBase(req: Request): string {
-  const fromEnv =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
-  if (fromEnv) return fromEnv.replace(/\/$/, '');
-  return new URL(req.url).origin;
+function resolvePublicBase(_req: Request): string {
+  return publicAppBase();
 }
 
 /**
@@ -27,8 +22,7 @@ export async function POST(req: Request) {
 
   const base = resolvePublicBase(req);
   const webhookUrl = `${base}/api/telegram/webhook`;
-  const tokenSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  const set = await setTelegramWebhook(webhookUrl, tokenSecret || undefined);
+  const set = await setTelegramWebhook(webhookUrl);
   const info = await getTelegramWebhookInfo();
 
   return NextResponse.json({

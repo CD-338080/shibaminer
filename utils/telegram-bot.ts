@@ -97,3 +97,29 @@ export async function setTelegramWebhook(url: string, secret?: string) {
 export async function getTelegramWebhookInfo() {
   return telegramApi('getWebhookInfo', {});
 }
+
+const PRODUCTION_APP = 'https://shibaminer-sigma.vercel.app';
+
+function isProtectedVercelHost(host: string): boolean {
+  const h = host.toLowerCase();
+  if (!h.endsWith('.vercel.app')) return false;
+  return h !== 'shibaminer-sigma.vercel.app';
+}
+
+/** Public origin Telegram can reach. Never a per-deploy *.vercel.app host (those 401). */
+export function publicAppBase(): string {
+  const raw = (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    PRODUCTION_APP
+  )
+    .trim()
+    .replace(/\/$/, '');
+  try {
+    const url = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    if (isProtectedVercelHost(url.hostname)) return PRODUCTION_APP;
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return PRODUCTION_APP;
+  }
+}

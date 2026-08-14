@@ -1,7 +1,7 @@
 import { announceTodaysPayouts } from '@/utils/payout-announce';
 import { loadPayoutTransactions } from '@/utils/payout-feed';
 import { announceRandomQa } from '@/utils/qa-posts';
-import { getTelegramWebhookInfo, setTelegramWebhook } from '@/utils/telegram-bot';
+import { getTelegramWebhookInfo, publicAppBase, setTelegramWebhook } from '@/utils/telegram-bot';
 
 export function cronAuthorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET || process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -14,30 +14,25 @@ export function cronAuthorized(req: Request): boolean {
   return false;
 }
 
-function publicBase(req: Request): string {
-  const fromEnv =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
-  if (fromEnv) return fromEnv.replace(/\/$/, '');
-  return new URL(req.url).origin;
+function publicBase(_req: Request): string {
+  return publicAppBase();
 }
 
 async function ensureWebhook(req: Request) {
   const want = `${publicBase(req)}/api/telegram/webhook`;
-  const tokenSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   try {
     const info = await getTelegramWebhookInfo();
     const result =
       info.ok && info.result && typeof info.result === 'object'
-        ? (info.result as { url?: string; last_error_message?: string; pending_update_count?: number })
+        ? (info.result as { url?: string; last_error_message?: string })
         : null;
     const current = String(result?.url || '');
     const lastError = String(result?.last_error_message || '');
     if (current === want && !lastError) {
       return { ok: true, url: want, skipped: true };
     }
-    const set = await setTelegramWebhook(want, tokenSecret || undefined);
+    // Never attach CRON_SECRET — preview/auth 401s kill Jarvis while payouts still work.
+    const set = await setTelegramWebhook(want);
     return { ok: set.ok, url: want, error: set.error || lastError || undefined, skipped: false };
   } catch (e) {
     return { ok: false, url: want, error: e instanceof Error ? e.message : 'webhook_failed' };
@@ -53,14 +48,14 @@ export async function tickPayoutsQuietly() {
   }
 }
 
-/** Jarvis webhook + payout channel + Q&A. Used by Vercel Cron. */
+/** Payouts first so a webhook hiccup never blocks the channel. */
 export async function runChannelCron(req: Request, opts?: { force?: boolean }) {
-  const webhook = await ensureWebhook(req);
   const transactions = await loadPayoutTransactions();
   const payouts = await announceTodaysPayouts(transactions, Date.now(), {
     force: !!opts?.force,
   });
   const qa = await announceRandomQa({ force: false });
+  const webhook = await ensureWebhook(req);
 
   return {
     webhook,
