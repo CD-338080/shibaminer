@@ -27,8 +27,7 @@ export async function POST(req: Request) {
 
   const base = resolvePublicBase(req);
   const webhookUrl = `${base}/api/telegram/webhook`;
-  const tokenSecret = process.env.TELEGRAM_WEBHOOK_SECRET || process.env.CRON_SECRET;
-
+  const tokenSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const set = await setTelegramWebhook(webhookUrl, tokenSecret || undefined);
   const info = await getTelegramWebhookInfo();
 

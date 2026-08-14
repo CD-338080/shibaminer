@@ -17,20 +17,8 @@ function miniAppUrl(): string {
   return `https://t.me/${botUsername()}/${appShortName()}`;
 }
 
-function webAppUrl(): string | null {
-  const base =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
-  if (!base) return null;
-  return `${base.replace(/\/$/, '')}/clicker`;
-}
-
 function welcomeKeyboard(): InlineKeyboard {
-  const web = webAppUrl();
-  const openRow = web
-    ? [{ text: '🚀 Open Shiba Miner', web_app: { url: web } }]
-    : [{ text: '🚀 Open Shiba Miner', url: miniAppUrl() }];
+  const openRow = [{ text: '🚀 Open Shiba Miner', url: miniAppUrl() }];
 
   return [
     openRow,

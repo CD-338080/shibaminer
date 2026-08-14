@@ -30,15 +30,6 @@ function miniAppUrl(): string {
   return `https://t.me/${botUsername()}/${appShortName()}`;
 }
 
-function webAppUrl(): string | null {
-  const base =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
-  if (!base) return null;
-  return `${base.replace(/\/$/, '')}/clicker`;
-}
-
 function payoutChannelLink(): string | null {
   // Prefer public username if set; else omit
   const user = process.env.PAYOUT_CHANNEL_USERNAME?.replace(/^@/, '');
@@ -53,10 +44,8 @@ function qaChannelLink(): string | null {
 }
 
 function mainKeyboard(): InlineKeyboard {
-  const web = webAppUrl();
-  const row1: InlineKeyboard[number] = web
-    ? [{ text: '🚀 Open Shiba Miner', web_app: { url: web } }]
-    : [{ text: '🚀 Open Shiba Miner', url: miniAppUrl() }];
+  // t.me deep link — web_app buttons fail if the domain is not set in BotFather
+  const row1: InlineKeyboard[number] = [{ text: '🚀 Open Shiba Miner', url: miniAppUrl() }];
 
   const row2: InlineKeyboard[number] = [
     { text: '⛏ How mining works', callback_data: 'help_mine' },

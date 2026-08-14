@@ -131,28 +131,38 @@ export async function getAppGrowthReport(): Promise<string> {
 }
 
 export async function getJarvisBrief(): Promise<string> {
-  const [total, mining, active24h] = await Promise.all([
-    prisma.user.count(),
-    prisma.user.count({ where: { autoMineActive: true } }).catch(() => 0),
-    prisma.user.count({
-      where: { lastPointsUpdateTimestamp: { gte: new Date(Date.now() - 86400000) } },
-    }),
-  ]);
-  return [
-    `<b>🕹 JARVIS online</b>`,
-    ``,
-    `Users: <b>${fmt(total)}</b> · Mining: <b>${fmt(mining)}</b> · 24h active: <b>${fmt(active24h)}</b>`,
-    ``,
-    `<b>Commands</b>`,
-    `Send any message — Jarvis opens automatically`,
-    `/growth — full growth report`,
-    `/stats — quick stats`,
-    `/send &lt;message&gt; — DM all users`,
-    `/send_preview &lt;message&gt; — preview only`,
-    `/user &lt;telegramId&gt; — lookup user`,
-    ``,
-    `Only authorized admin IDs can use Jarvis.`,
-  ].join('\n');
+  try {
+    const [total, mining, active24h] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { autoMineActive: true } }).catch(() => 0),
+      prisma.user.count({
+        where: { lastPointsUpdateTimestamp: { gte: new Date(Date.now() - 86400000) } },
+      }),
+    ]);
+    return [
+      `<b>🕹 JARVIS online</b>`,
+      ``,
+      `Users: <b>${fmt(total)}</b> · Mining: <b>${fmt(mining)}</b> · 24h active: <b>${fmt(active24h)}</b>`,
+      ``,
+      `<b>Commands</b>`,
+      `Send any message — Jarvis opens automatically`,
+      `/growth — full growth report`,
+      `/stats — quick stats`,
+      `/send &lt;message&gt; — DM all users`,
+      `/send_preview &lt;message&gt; — preview only`,
+      `/user &lt;telegramId&gt; — lookup user`,
+      ``,
+      `Only authorized admin IDs can use Jarvis.`,
+    ].join('\n');
+  } catch (e) {
+    console.error('jarvis brief', e);
+    return [
+      `<b>🕹 JARVIS online</b>`,
+      ``,
+      `Stats temporarily unavailable.`,
+      `/growth · /stats · /send · /user`,
+    ].join('\n');
+  }
 }
 
 export const PROMOTION_URL = 'https://t.me/AdEaslyLTCBot';

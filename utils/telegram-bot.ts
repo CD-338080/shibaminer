@@ -51,13 +51,24 @@ export async function sendTelegramMessage(opts: {
   const chatId = normalizeTelegramChatId(opts.chatId ?? process.env.PAYOUT_CHANNEL_ID);
   if (!chatId) return { ok: false, error: 'chat_id missing' };
 
-  return telegramApi('sendMessage', {
+  const payload: Record<string, unknown> = {
     chat_id: chatId,
     text: opts.text,
     parse_mode: opts.parseMode || 'HTML',
     disable_web_page_preview: opts.disablePreview ?? false,
-    ...(opts.replyMarkup ? { reply_markup: opts.replyMarkup } : {}),
-  });
+  };
+  if (opts.replyMarkup) payload.reply_markup = opts.replyMarkup;
+
+  const sent = await telegramApi('sendMessage', payload);
+  if (
+    !sent.ok &&
+    opts.replyMarkup &&
+    /BUTTON|WEBAPP|KEYBOARD|URL_INVALID/i.test(sent.error || '')
+  ) {
+    delete payload.reply_markup;
+    return telegramApi('sendMessage', payload);
+  }
+  return sent;
 }
 
 export async function answerCallbackQuery(opts: {
@@ -73,6 +84,8 @@ export async function answerCallbackQuery(opts: {
 }
 
 export async function setTelegramWebhook(url: string, secret?: string) {
+  // Only attach secret_token when TELEGRAM_WEBHOOK_SECRET is set.
+  // Reusing CRON_SECRET here 401s Telegram if the values diverge.
   return telegramApi('setWebhook', {
     url,
     allowed_updates: ['message', 'callback_query'],

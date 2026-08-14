@@ -38,7 +38,7 @@ const base = (
   'https://shibaminer-sigma.vercel.app'
 ).replace(/\/$/, '');
 const webhookUrl = `${base}/api/telegram/webhook`;
-const secret = process.env.TELEGRAM_WEBHOOK_SECRET || process.env.CRON_SECRET || '';
+const secret = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 
 async function api(method, body) {
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {

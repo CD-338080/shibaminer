@@ -25,18 +25,20 @@ function publicBase(req: Request): string {
 
 async function ensureWebhook(req: Request) {
   const want = `${publicBase(req)}/api/telegram/webhook`;
-  const tokenSecret = process.env.TELEGRAM_WEBHOOK_SECRET || process.env.CRON_SECRET;
+  const tokenSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   try {
     const info = await getTelegramWebhookInfo();
-    const current =
+    const result =
       info.ok && info.result && typeof info.result === 'object'
-        ? String((info.result as { url?: string }).url || '')
-        : '';
-    if (current === want) {
+        ? (info.result as { url?: string; last_error_message?: string; pending_update_count?: number })
+        : null;
+    const current = String(result?.url || '');
+    const lastError = String(result?.last_error_message || '');
+    if (current === want && !lastError) {
       return { ok: true, url: want, skipped: true };
     }
     const set = await setTelegramWebhook(want, tokenSecret || undefined);
-    return { ok: set.ok, url: want, error: set.error, skipped: false };
+    return { ok: set.ok, url: want, error: set.error || lastError || undefined, skipped: false };
   } catch (e) {
     return { ok: false, url: want, error: e instanceof Error ? e.message : 'webhook_failed' };
   }
