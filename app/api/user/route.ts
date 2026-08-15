@@ -19,6 +19,7 @@ import { MAX_ENERGY_REFILLS_PER_DAY, energyUpgradeBaseBenefit, REFERRAL_BONUS_BA
 import { validateTelegramWebAppData } from '@/utils/server-checks';
 import { calculateEnergyLimit, calculateLevelIndex, calculateMinedPoints, calculateRestoredEnergy } from '@/utils/game-mechanics';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { notifyReferrerOfNewInvite } from '@/utils/referral-notify';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 100; // milliseconds
@@ -55,6 +56,13 @@ export async function POST(req: Request) {
   }
 
   try {
+    let referralNotify: {
+      referrerTelegramId: string;
+      newbieName: string;
+      isPremium: boolean;
+      bonusShib: number;
+    } | null = null;
+
     const dbUserUpdated = await prisma.$transaction(async (prisma) => {
       let dbUser = await prisma.user.findUnique({
         where: { telegramId },
@@ -153,11 +161,15 @@ export async function POST(req: Request) {
           }
         }
       } else {
-        // New user creation
+        const safeReferrerId =
+          referrerTelegramId && String(referrerTelegramId) !== String(telegramId)
+            ? String(referrerTelegramId)
+            : null;
+
         let referredByUser = null;
-        if (referrerTelegramId) {
+        if (safeReferrerId) {
           referredByUser = await prisma.user.findUnique({
-            where: { telegramId: referrerTelegramId },
+            where: { telegramId: safeReferrerId },
           });
         }
 
@@ -205,11 +217,22 @@ export async function POST(req: Request) {
               referrals: { connect: { id: dbUser.id } },
             },
           });
+
+          referralNotify = {
+            referrerTelegramId: referredByUser.telegramId,
+            newbieName: telegramUser?.first_name || 'New miner',
+            isPremium,
+            bonusShib: initialReferralPoints,
+          };
         }
       }
 
       return dbUser;
     });
+
+    if (referralNotify) {
+      void notifyReferrerOfNewInvite(referralNotify);
+    }
 
     return NextResponse.json(dbUserUpdated);
   } catch (error) {
